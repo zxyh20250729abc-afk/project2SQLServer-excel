@@ -9,6 +9,7 @@ import streamlit as st
 from audit import record
 from database import DatabaseConnectionError, QueryExecutionError, ReadonlyAccountError, count_rows, fetch_export, fetch_preview, readonly_connection
 from demo_data import filter_demo_employees, load_demo_employees
+from discovery import DiscoveredFilter, discover_demo_employee_filters, discover_employee_filters
 from exporter import create_filename, dataframe_to_excel
 from reports import build_params, get_report
 
@@ -53,6 +54,14 @@ def validate_inputs(operator_id: str, min_age: int | None, max_age: int | None) 
     return None
 
 
+def get_filter_definitions(mode: str, sql_settings: dict[str, Any]) -> tuple[DiscoveredFilter, ...]:
+    """读取已批准字段的只读元数据；任何异常均阻止真实查询。"""
+    if mode == "demo":
+        return discover_demo_employee_filters(load_demo_employees())
+    with readonly_connection(sql_settings) as connection:
+        return discover_employee_filters(connection)
+
+
 def main() -> None:
     st.set_page_config(page_title="project2SQLServer导入excel系统", page_icon="📊", layout="wide")
     st.title("project2SQLServer导入excel系统")
@@ -72,15 +81,31 @@ def main() -> None:
     else:
         st.caption(report.source_note)
 
+    try:
+        filters_definition = get_filter_definitions(mode, sql_settings)
+    except (DatabaseConnectionError, ReadonlyAccountError, QueryExecutionError) as exc:
+        st.error(f"无法读取已批准的筛选条件：{exc}")
+        st.stop()
+
+    filters_by_key = {item.key: item for item in filters_definition}
+    if "department" not in filters_by_key or "age" not in filters_by_key:
+        st.error("数据库表结构未包含已批准的 department 与 age 筛选字段，已停止查询。")
+        st.stop()
+
     with st.form("query_form"):
         operator_id = st.text_input("姓名或工号", max_chars=100, help="仅用于导出审计。")
         col1, col2, col3 = st.columns(3)
         with col1:
-            department = st.text_input("部门（可选）", max_chars=100).strip() or None
+            department_filter = filters_by_key["department"]
+            department = st.selectbox(
+                f"{department_filter.label}（可选）",
+                options=("全部", *department_filter.options),
+            )
+            department = None if department == "全部" else department
         with col2:
-            min_age_text = st.text_input("最小年龄（可选）", max_chars=3)
+            min_age_text = st.text_input(f"最小{filters_by_key['age'].label}（可选）", max_chars=3)
         with col3:
-            max_age_text = st.text_input("最大年龄（可选）", max_chars=3)
+            max_age_text = st.text_input(f"最大{filters_by_key['age'].label}（可选）", max_chars=3)
         submitted = st.form_submit_button("查询预览", type="primary")
 
     if not submitted:

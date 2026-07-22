@@ -51,13 +51,13 @@ mode = "sqlserver"
 python scripts/verify_sqlserver_connection.py
 ```
 
-该验证程序只运行 `SELECT SYSTEM_USER`、`SELECT DB_NAME()` 和受控报表的 `SELECT COUNT_BIG`。它不写入 SQL Server，也不创建本地审计日志。
+该验证程序只运行 `SELECT SYSTEM_USER`、`SELECT DB_NAME()` 和受控报表的 `SELECT COUNT_BIG`。应用页面额外只读查询固定的字段元数据与最多 200 个部门候选值，用于动态生成筛选控件。两者均不写入 SQL Server，也不创建本地审计日志。
 
 然后以相同账号在目标数据库执行 `scripts/verify_sqlserver_permissions.sql`，确认权限结果中没有 `INSERT`、`UPDATE`、`DELETE`、`ALTER`、`CONTROL` 或 `EXECUTE`。
 
 ## 4. 上线验证
 
-1. 当前测试版本读取 `dbo.employees`；生产上线前，将 `reports.py` 的对象与字段替换为 DBA 批准的真实只读视图；保持所有条件使用 `?` 参数。
+1. 当前测试版本读取 `dbo.employees`；生产上线前，将 `reports.py` 的对象与字段替换为 DBA 批准的真实只读视图，并同步维护筛选字段白名单；保持所有条件使用 `?` 参数。
 2. 执行 `pytest -q`，确认基础测试通过。
 3. 启动 `streamlit run app.py`，使用一个小的部门或年龄范围验证预览和 Excel 下载。
 4. 查询 SQL Server 审计/扩展事件或数据库日志，确认仅出现 `SELECT`。

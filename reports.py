@@ -20,6 +20,16 @@ class ReportDefinition:
     count_sql: str
 
 
+@dataclass(frozen=True)
+class FilterDefinition:
+    """经维护者批准、可由页面动态生成的筛选条件。"""
+
+    key: str
+    column_name: str
+    label: str
+    kind: str  # enum 或 integer_range
+
+
 # 当前连接的是测试库中的 dbo.employees。
 # 生产环境应由 DBA 替换为已批准、只包含必要字段的只读视图。
 _EMPLOYEE_WHERE = """
@@ -47,6 +57,12 @@ EMPLOYEE_REPORT = ReportDefinition(
     data_sql=_EMPLOYEE_COLUMNS + _EMPLOYEE_WHERE + "ORDER BY personid ASC",
     preview_sql="SELECT TOP (100) * FROM (" + _EMPLOYEE_COLUMNS + _EMPLOYEE_WHERE + ") AS report_preview ORDER BY [人员编号] ASC",
     count_sql="SELECT COUNT_BIG(1) AS row_count FROM dbo.employees " + _EMPLOYEE_WHERE,
+)
+
+# 只允许此白名单内的字段进入页面。即使元数据中还有其他列，也不会自动展示或导出。
+EMPLOYEE_FILTERS = (
+    FilterDefinition(key="department", column_name="department", label="部门", kind="enum"),
+    FilterDefinition(key="age", column_name="age", label="年龄", kind="integer_range"),
 )
 
 REPORTS: dict[str, ReportDefinition] = {EMPLOYEE_REPORT.key: EMPLOYEE_REPORT}

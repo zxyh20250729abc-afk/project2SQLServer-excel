@@ -21,15 +21,15 @@ cp .streamlit/secrets.toml.example .streamlit/secrets.toml
 
 ## 2. DBA 必须完成的权限配置
 
-应用账号必须是专用账号，且只获得报表视图（建议 `dbo.vw_report_export`）的 `SELECT` 权限。不得使用 `sysadmin`、`db_owner`、`db_datawriter` 或任何具备写权限的共享账号。
+应用账号必须是专用账号，且在当前测试库中只获得 `dbo.employees` 的 `SELECT` 权限。不得使用 `sysadmin`、`db_owner`、`db_datawriter` 或任何具备写权限的共享账号。生产环境建议改为只读报表视图，并只授予该视图的 `SELECT` 权限。
 
 建议由 DBA 在变更流程中执行并审核类似配置（对象与账号名须替换为实际值）：
 
 ```sql
 USE [业务数据库];
 CREATE USER [report_export_reader] FOR LOGIN [report_export_reader];
-GRANT SELECT ON OBJECT::dbo.vw_report_export TO [report_export_reader];
-DENY INSERT, UPDATE, DELETE ON OBJECT::dbo.vw_report_export TO [report_export_reader];
+GRANT SELECT ON OBJECT::dbo.employees TO [report_export_reader];
+DENY INSERT, UPDATE, DELETE ON OBJECT::dbo.employees TO [report_export_reader];
 ```
 
 `CREATE USER` 和 `GRANT` 是 DBA 的一次性权限配置，不属于应用运行步骤；应用本身只执行查询。
@@ -57,8 +57,8 @@ python scripts/verify_sqlserver_connection.py
 
 ## 4. 上线验证
 
-1. 将 `reports.py` 的示例视图与字段替换为 DBA 批准的真实只读视图；保持所有条件使用 `?` 参数。
+1. 当前测试版本读取 `dbo.employees`；生产上线前，将 `reports.py` 的对象与字段替换为 DBA 批准的真实只读视图；保持所有条件使用 `?` 参数。
 2. 执行 `pytest -q`，确认基础测试通过。
-3. 启动 `streamlit run app.py`，使用一个小日期范围验证预览和 Excel 下载。
+3. 启动 `streamlit run app.py`，使用一个小的部门或年龄范围验证预览和 Excel 下载。
 4. 查询 SQL Server 审计/扩展事件或数据库日志，确认仅出现 `SELECT`。
 5. 保留应用本地 `audit.db` 作为导出审计；该文件仅记录导出元数据，不会写入业务数据库。

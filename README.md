@@ -4,7 +4,7 @@
 
 ## 当前功能
 
-- 日期、部门、状态的受控查询条件
+- 部门、最小年龄、最大年龄的受控查询条件
 - SQL Server 只读意图连接与参数化 SQL
 - 结果总行数、前 100 行预览、Excel 下载
 - 冻结表头、筛选、自动列宽和标准文件命名
@@ -21,7 +21,7 @@ source .venv/bin/activate
 streamlit run app.py
 ```
 
-页面会显示“模拟数据模式”提示；可按日期、部门、状态筛选模拟订单，预览结果并下载 Excel。模拟数据不会访问网络或 SQL Server。
+页面会显示“模拟数据模式”提示；可按部门、年龄范围筛选模拟员工，预览结果并下载 Excel。模拟数据不会访问网络或 SQL Server。
 
 如已创建密钥文件，请在 `[app]` 中写入 `mode = "demo"` 也可强制使用模拟数据。接入真实数据库时再改为 `mode = "sqlserver"`。
 
@@ -52,10 +52,10 @@ cd "/Users/remi/Documents/Codex/2026-07-22/wo/project2SQLServer导入excel系统
 
    - 已安装目标平台适用的 SQL Server ODBC Driver；
    - macOS 本地开发除 `unixODBC` 外，还需要安装 Microsoft ODBC Driver 18 for SQL Server；当前环境尚未检测到该 Microsoft 驱动；
-   - 数据库账户只具有所需视图/表的 `SELECT` 或受控存储过程的 `EXECUTE` 权限；
+   - 数据库账户只具有 `dbo.employees`（测试库）或生产批准视图的 `SELECT` 权限；
    - `encrypt` 与证书策略符合公司的数据库安全要求。
 
-4. 在 `reports.py` 将示例视图 `dbo.vw_report_export` 和字段替换为 DBA 批准的数据视图与真实字段。不要把用户输入拼接到 SQL。
+4. 当前测试库已配置为读取 `dbo.employees`。生产上线前，请在 `reports.py` 将其替换为 DBA 批准的数据视图与真实字段；不要把用户输入拼接到 SQL。
 
 5. 启动：
 
@@ -82,5 +82,5 @@ python scripts/package_release.py
 
 - 不提交 `.streamlit/secrets.toml`、`audit.db`、导出文件或 `.venv`。
 - 实际数据库凭据和对象授权已由 DBA 审核。
-- 正常、无数据、日期超限、连接失败和大结果集场景均已测试。
+- 正常、无数据、年龄范围非法、连接失败和大结果集场景均已测试。
 - 每次导出均写入审计日志，且日志不含密码或结果明细。

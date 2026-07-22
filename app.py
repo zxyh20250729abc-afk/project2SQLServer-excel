@@ -2,19 +2,18 @@
 
 from __future__ import annotations
 
-from datetime import date, timedelta
 from typing import Any
 
 import streamlit as st
 
 from audit import record
 from database import DatabaseConnectionError, QueryExecutionError, ReadonlyAccountError, count_rows, fetch_export, fetch_preview, readonly_connection
-from demo_data import filter_demo_orders, load_demo_orders
+from demo_data import filter_demo_employees, load_demo_employees
 from exporter import create_filename, dataframe_to_excel
 from reports import build_params, get_report
 
 
-REPORT_KEY = "order_detail"
+REPORT_KEY = "employee_list"
 
 
 def get_settings() -> tuple[str, dict[str, Any], dict[str, Any]]:
@@ -33,13 +32,24 @@ def get_settings() -> tuple[str, dict[str, Any], dict[str, Any]]:
     return mode, sql_settings, app_settings
 
 
-def validate_inputs(operator_id: str, start_date: date, end_date: date, max_range_days: int) -> str | None:
+def parse_optional_age(value: str, field_name: str) -> tuple[int | None, str | None]:
+    """解析可选年龄，避免将页面输入直接带入查询。"""
+    value = value.strip()
+    if not value:
+        return None, None
+    if not value.isdigit():
+        return None, f"{field_name}必须是整数。"
+    age = int(value)
+    if not 0 <= age <= 150:
+        return None, f"{field_name}应在 0 到 150 之间。"
+    return age, None
+
+
+def validate_inputs(operator_id: str, min_age: int | None, max_age: int | None) -> str | None:
     if not operator_id.strip():
         return "请输入姓名或工号，用于导出审计。"
-    if end_date < start_date:
-        return "结束日期不能早于开始日期。"
-    if (end_date - start_date).days + 1 > max_range_days:
-        return f"单次查询日期范围不能超过 {max_range_days} 天。"
+    if min_age is not None and max_age is not None and min_age > max_age:
+        return "最小年龄不能大于最大年龄。"
     return None
 
 
@@ -64,41 +74,37 @@ def main() -> None:
 
     with st.form("query_form"):
         operator_id = st.text_input("姓名或工号", max_chars=100, help="仅用于导出审计。")
-        col1, col2, col3, col4 = st.columns(4)
-        today = date.today()
+        col1, col2, col3 = st.columns(3)
         with col1:
-            start_date = st.date_input("开始日期", value=today - timedelta(days=6))
-        with col2:
-            end_date = st.date_input("结束日期", value=today)
-        with col3:
             department = st.text_input("部门（可选）", max_chars=100).strip() or None
-        with col4:
-            status = st.selectbox("状态（可选）", options=["全部", "待处理", "已完成", "已取消"])
-            status = None if status == "全部" else status
+        with col2:
+            min_age_text = st.text_input("最小年龄（可选）", max_chars=3)
+        with col3:
+            max_age_text = st.text_input("最大年龄（可选）", max_chars=3)
         submitted = st.form_submit_button("查询预览", type="primary")
 
     if not submitted:
         return
 
-    max_range_days = int(app_settings.get("max_date_range_days", 31))
-    validation_error = validate_inputs(operator_id, start_date, end_date, max_range_days)
+    min_age, min_age_error = parse_optional_age(min_age_text, "最小年龄")
+    max_age, max_age_error = parse_optional_age(max_age_text, "最大年龄")
+    validation_error = min_age_error or max_age_error or validate_inputs(operator_id, min_age, max_age)
     if validation_error:
         st.warning(validation_error)
         return
 
-    filters = {"start_date": start_date.isoformat(), "end_date": end_date.isoformat(), "department": department, "status": status}
-    params = build_params(start_date, end_date + timedelta(days=1), department, status)
+    filters = {"department": department, "min_age": min_age, "max_age": max_age}
+    params = build_params(department, min_age, max_age)
     audit_path = str(app_settings.get("audit_db_path", "audit.db"))
 
     try:
         with st.spinner("正在准备数据..."):
             if mode == "demo":
-                export_data = filter_demo_orders(
-                    load_demo_orders(),
-                    start_date=start_date,
-                    end_date=end_date,
+                export_data = filter_demo_employees(
+                    load_demo_employees(),
                     department=department,
-                    status=status,
+                    min_age=min_age,
+                    max_age=max_age,
                 )
                 row_count = len(export_data)
                 preview = export_data.head(100)
@@ -107,7 +113,7 @@ def main() -> None:
                     row_count = count_rows(connection, report, params)
                     max_export_rows = int(app_settings.get("max_export_rows", 1_048_576))
                     if row_count > max_export_rows:
-                        raise QueryExecutionError(f"查询结果超过 {max_export_rows:,} 行，请缩小日期范围或筛选条件。")
+                        raise QueryExecutionError(f"查询结果超过 {max_export_rows:,} 行，请缩小筛选条件。")
                     preview = fetch_preview(connection, report, params)
                     export_data = fetch_export(connection, report, params)
         st.success(f"查询完成，共 {row_count:,} 行。以下展示前 {len(preview):,} 行。")
@@ -119,7 +125,7 @@ def main() -> None:
             return
 
         excel_data = dataframe_to_excel(export_data, sheet_name=report.name)
-        filename = create_filename(report.name, start_date, end_date)
+        filename = create_filename(report.name)
         record(audit_path, operator_id=operator_id, report_key=REPORT_KEY, filters=filters, status="success", row_count=row_count)
         st.download_button(
             "下载 Excel",

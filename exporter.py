@@ -2,18 +2,18 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import datetime
 from io import BytesIO
 import re
 
 import pandas as pd
 
 
-def create_filename(report_name: str, start_date: date, end_date: date) -> str:
+def create_filename(report_name: str) -> str:
     """生成可追溯且不包含不安全文件名字符的导出文件名。"""
     safe_name = re.sub(r'[\\/:*?"<>|]+', "_", report_name).strip() or "report"
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return f"{safe_name}_{start_date:%Y%m%d}_{end_date:%Y%m%d}_{timestamp}.xlsx"
+    return f"{safe_name}_{timestamp}.xlsx"
 
 
 def dataframe_to_excel(dataframe: pd.DataFrame, sheet_name: str = "数据明细") -> bytes:

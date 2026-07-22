@@ -1,24 +1,20 @@
-from datetime import date, timedelta
-
-from demo_data import filter_demo_orders, load_demo_orders
+from demo_data import filter_demo_employees, load_demo_employees
 
 
 def test_demo_data_has_expected_columns_and_rows():
-    dataframe = load_demo_orders()
+    dataframe = load_demo_employees()
     assert len(dataframe) == 180
-    assert list(dataframe.columns) == ["订单编号", "客户名称", "订单日期", "部门", "状态", "金额"]
+    assert list(dataframe.columns) == ["人员编号", "姓", "名", "年龄", "部门", "薪资"]
 
 
-def test_demo_filter_applies_date_department_and_status():
-    dataframe = load_demo_orders()
-    target_date = date.today() - timedelta(days=5)
-    result = filter_demo_orders(
+def test_demo_filter_applies_department_and_age_range():
+    dataframe = load_demo_employees()
+    result = filter_demo_employees(
         dataframe,
-        start_date=target_date,
-        end_date=target_date,
         department="销售部",
-        status="待处理",
+        min_age=25,
+        max_age=40,
     )
-    assert all(result["订单日期"] == target_date)
     assert all(result["部门"] == "销售部")
-    assert all(result["状态"] == "待处理")
+    assert all(result["年龄"] >= 25)
+    assert all(result["年龄"] <= 40)

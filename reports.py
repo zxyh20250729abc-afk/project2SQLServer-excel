@@ -5,7 +5,6 @@
 """
 
 from dataclasses import dataclass
-from datetime import date
 import re
 from typing import Any
 
@@ -21,37 +20,36 @@ class ReportDefinition:
     count_sql: str
 
 
-# 对接时：将 dbo.vw_report_export 和字段名替换为 DBA 批准的只读视图/字段。
-# 日期使用 [start_date, end_date) 半开区间，避免结束日漏数。
-_BASE_WHERE = """
-WHERE order_date >= ?
-  AND order_date < ?
-  AND (? IS NULL OR department_name = ?)
-  AND (? IS NULL OR order_status = ?)
+# 当前连接的是测试库中的 dbo.employees。
+# 生产环境应由 DBA 替换为已批准、只包含必要字段的只读视图。
+_EMPLOYEE_WHERE = """
+WHERE (? IS NULL OR department = ?)
+  AND (? IS NULL OR age >= ?)
+  AND (? IS NULL OR age <= ?)
 """
 
-_SELECT_COLUMNS = """
+_EMPLOYEE_COLUMNS = """
 SELECT
-    order_no        AS [订单编号],
-    customer_name   AS [客户名称],
-    order_date      AS [订单日期],
-    department_name AS [部门],
-    order_status    AS [状态],
-    amount          AS [金额]
-FROM dbo.vw_report_export
+    personid  AS [人员编号],
+    lastname  AS [姓],
+    firstname AS [名],
+    age       AS [年龄],
+    department AS [部门],
+    salary    AS [薪资]
+FROM dbo.employees
 """
 
-ORDER_DETAIL_REPORT = ReportDefinition(
-    key="order_detail",
-    name="订单明细",
-    description="按日期、部门和状态导出订单明细。",
-    source_note="数据源：dbo.vw_report_export（上线前替换为已批准的数据视图）。",
-    data_sql=_SELECT_COLUMNS + _BASE_WHERE + "ORDER BY order_date DESC, order_no DESC",
-    preview_sql="SELECT TOP (100) * FROM (" + _SELECT_COLUMNS + _BASE_WHERE + ") AS report_preview ORDER BY [订单日期] DESC, [订单编号] DESC",
-    count_sql="SELECT COUNT_BIG(1) AS row_count FROM dbo.vw_report_export " + _BASE_WHERE,
+EMPLOYEE_REPORT = ReportDefinition(
+    key="employee_list",
+    name="员工信息",
+    description="按部门和年龄范围导出员工信息。",
+    source_note="数据源：dbo.employees（当前测试库；生产环境应替换为 DBA 批准的只读视图）。",
+    data_sql=_EMPLOYEE_COLUMNS + _EMPLOYEE_WHERE + "ORDER BY personid ASC",
+    preview_sql="SELECT TOP (100) * FROM (" + _EMPLOYEE_COLUMNS + _EMPLOYEE_WHERE + ") AS report_preview ORDER BY [人员编号] ASC",
+    count_sql="SELECT COUNT_BIG(1) AS row_count FROM dbo.employees " + _EMPLOYEE_WHERE,
 )
 
-REPORTS: dict[str, ReportDefinition] = {ORDER_DETAIL_REPORT.key: ORDER_DETAIL_REPORT}
+REPORTS: dict[str, ReportDefinition] = {EMPLOYEE_REPORT.key: EMPLOYEE_REPORT}
 
 # SQL Server 数据访问的第二道代码防线：本应用的远程查询只能是单条 SELECT。
 # 这不是数据库权限的替代品；最终写保护必须由只读数据库账号实现。
@@ -90,17 +88,16 @@ def get_report(report_key: str) -> ReportDefinition:
 
 
 def build_params(
-    start_date: date,
-    end_date_exclusive: date,
     department: str | None,
-    status: str | None,
+    min_age: int | None,
+    max_age: int | None,
 ) -> list[Any]:
     """按固定 SQL 中的 ? 占位符顺序绑定参数，绝不拼接用户输入。"""
     return [
-        start_date,
-        end_date_exclusive,
         department,
         department,
-        status,
-        status,
+        min_age,
+        min_age,
+        max_age,
+        max_age,
     ]

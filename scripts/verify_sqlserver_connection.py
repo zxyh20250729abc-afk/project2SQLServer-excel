@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-from datetime import date, timedelta
 from pathlib import Path
 import sys
 import tomllib
@@ -25,17 +24,16 @@ def main() -> None:
     with config_path.open("rb") as config_file:
         settings = tomllib.load(config_file)
     sql_settings = settings.get("sqlserver", {})
-    report = get_report("order_detail")
-    end_date = date.today()
-    params = build_params(end_date - timedelta(days=1), end_date + timedelta(days=1), None, None)
+    report = get_report("employee_list")
+    params = build_params(None, None, None)
 
     with readonly_connection(sql_settings) as connection:
-        # 仅验证连通性、当前身份和报表视图可读性。
+        # 仅验证连通性、当前身份和员工测试表可读性。
         identity = connection.cursor().execute("SELECT SYSTEM_USER AS login_name, DB_NAME() AS database_name").fetchone()
         row = connection.cursor().execute(report.count_sql, params).fetchone()
 
     print(f"连接成功：账号={identity[0]}，数据库={identity[1]}")
-    print(f"报表视图读取成功：最近两天匹配行数={int(row[0]) if row else 0}")
+    print(f"员工表读取成功：匹配行数={int(row[0]) if row else 0}")
     print("核验完成：脚本未执行 INSERT、UPDATE、DELETE、DDL 或存储过程。")
 
 

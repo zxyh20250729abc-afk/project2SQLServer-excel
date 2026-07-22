@@ -1,0 +1,16 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Secrets and runtime data
+.streamlit/secrets.toml
+*.db
+exports/
+logs/
+
+# Local tooling
+.DS_Store
+.idea/
+.vscode/

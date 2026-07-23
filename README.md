@@ -81,6 +81,8 @@ python scripts/package_release.py
 
 此命令会在上级 `outputs/` 目录创建不含密钥、审计日志、导出文件和虚拟环境的交付 ZIP。真实 SQL Server 接入和只读权限核验见 [docs/REAL_SQLSERVER_VALIDATION.md](docs/REAL_SQLSERVER_VALIDATION.md)，完整审查结论见 [SECURITY_REVIEW.md](SECURITY_REVIEW.md)。
 
+推荐的推广部署方式是将应用部署在 SQL Server 所在的 Windows 服务器，应用通过本机 `127.0.0.1` 读取数据库，终端用户只访问网页。详见 [docs/WINDOWS_SERVER_DEPLOYMENT.md](docs/WINDOWS_SERVER_DEPLOYMENT.md)。
+
 ## 交付前检查
 
 - 不提交 `.streamlit/secrets.toml`、`audit.db`、导出文件或 `.venv`。

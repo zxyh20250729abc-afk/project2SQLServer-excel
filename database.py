@@ -86,6 +86,12 @@ def _as_bool(value: Any) -> str:
     return "yes" if bool(value) else "no"
 
 
+def _tcp_server(value: Any) -> str:
+    """强制使用 TCP，避免客户端尝试其他 SQL Server 网络协议。"""
+    server = str(value).strip()
+    return server if server.casefold().startswith("tcp:") else f"tcp:{server}"
+
+
 def build_connection_string(settings: Mapping[str, Any]) -> str:
     """从密钥配置构造连接串；调用方不得记录返回值，因其包含密码。"""
     required = ("server", "database", "username", "password", "driver")
@@ -95,7 +101,7 @@ def build_connection_string(settings: Mapping[str, Any]) -> str:
 
     return (
         f"DRIVER={{{settings['driver']}}};"
-        f"SERVER={settings['server']};"
+        f"SERVER={_tcp_server(settings['server'])};"
         f"DATABASE={settings['database']};"
         f"UID={settings['username']};"
         f"PWD={settings['password']};"

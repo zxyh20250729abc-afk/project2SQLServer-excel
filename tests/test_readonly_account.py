@@ -1,6 +1,6 @@
 import pytest
 
-from database import PrincipalIdentity, ReadonlyAccountError, validate_readonly_principal
+from database import PrincipalIdentity, ReadonlyAccountError, build_connection_string, validate_readonly_principal
 
 
 def make_identity(**overrides):
@@ -33,3 +33,16 @@ def test_high_privilege_account_is_blocked_even_if_allowlisted(role):
 def test_empty_allowlist_fails_closed():
     with pytest.raises(ReadonlyAccountError, match="未配置"):
         validate_readonly_principal(make_identity(), [])
+
+
+def test_connection_string_forces_tcp_without_exposing_password():
+    connection_string = build_connection_string(
+        {
+            "server": "192.0.2.19,1433",
+            "database": "db_test0",
+            "username": "report_export_reader",
+            "password": "example-secret",
+            "driver": "ODBC Driver 18 for SQL Server",
+        }
+    )
+    assert "SERVER=tcp:192.0.2.19,1433;" in connection_string

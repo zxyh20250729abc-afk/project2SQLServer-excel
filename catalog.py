@@ -185,7 +185,9 @@ def available_datasets(mode: str) -> tuple[DatasetPresentation, ...]:
     """返回当前运行模式可用的业务查询事项。"""
     if mode == "demo":
         return tuple(dataset for dataset in DATASETS if dataset.report.supports_demo)
-    return DATASETS
+    # 员工数据只用于本机演示/连通性脚本。真实业务库不应要求存在 dbo.employees，
+    # 更不能把它误当成普通用户的业务查询入口。
+    return tuple(dataset for dataset in DATASETS if not dataset.is_system_test)
 
 
 def get_dataset(report_key: str) -> DatasetPresentation:

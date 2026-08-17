@@ -441,6 +441,10 @@ def render_builder(dataset: DatasetPresentation, mode: str, sql_settings: dict[s
     if st.button("← 返回首页"):
         go_home()
 
+    if dataset.is_system_test and mode != "demo":
+        st.warning("员工测试数据只用于本机演示和管理员连通性核验，不属于真实业务库。请返回首页，选择“财务数据”或“合同管理”中的业务事项。")
+        return
+
     st.title(dataset.title)
     st.caption(dataset.description)
     st.caption("系统会自动关联已批准的业务数据；您无需了解数据表或字段名称。")
@@ -449,6 +453,9 @@ def render_builder(dataset: DatasetPresentation, mode: str, sql_settings: dict[s
     with st.form(f"query_form_{dataset.report_key}"):
         st.subheader("1. 选择查询条件")
         filters, filter_error = render_filters(report, mode, sql_settings)
+        if filter_error:
+            # 不能再把筛选项读取失败隐藏到点击查询之后，避免页面出现空白条件区。
+            st.error(filter_error)
         st.subheader("2. 选择要查看的信息")
         selected_fields = render_field_picker(dataset)
         st.caption(query_summary(dataset, filters or {}, selected_fields))

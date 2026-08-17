@@ -6,8 +6,8 @@
 
 - 已安装 Python 3.12 或更高版本，并在安装界面勾选 “Add Python to PATH”。
 - 已安装 Microsoft ODBC Driver 18 for SQL Server。
-- SQL Server 与 `dbo.employees` 位于本机 `db_test0`，端口为 `1433`。
-- 已创建专用只读账号 `report_export_reader`，且仅有 `dbo.employees` 的 `SELECT` 权限。
+- SQL Server 位于本机，已启用 TCP 端口 `1433`。
+- 已创建专用只读账号 `report_export_reader`，且仅有已批准测试表或业务报表视图/表的 `SELECT` 权限。
 
 ## 2. 部署项目
 
@@ -40,15 +40,15 @@ max_export_rows = 1048576
 audit_db_path = "audit.db"
 ```
 
-`encrypt = false` 仅适用于此 MVP 的本机测试。正式上线应部署受信任证书后设置 `encrypt = true` 与 `trust_server_certificate = false`。
+`db_test0` 和 `dbo.employees` 仅适用于连通性测试。运行真实业务报表时，应将 `database` 改为业务数据库，并由 DBA 授予每份预设报表所需对象的 SELECT 权限。`encrypt = false` 仅适用于此 MVP 的本机测试；正式上线应部署受信任证书后设置 `encrypt = true` 与 `trust_server_certificate = false`。
 
 ## 3. 只读连通性验证
 
 ```powershell
-python scripts\verify_sqlserver_connection.py
+python scripts\verify_sqlserver_connection.py --report employee_list
 ```
 
-成功后才可启动网页应用。该验证只执行 `SELECT`，不会修改 SQL Server 数据。
+员工测试通过后，部署真实业务库前还应核验实际报表，例如：`python scripts\verify_sqlserver_connection.py --report contract_stamp_tax_detail`。所有核验只执行 `SELECT`，不会修改 SQL Server 数据。
 
 ## 4. 启动应用
 

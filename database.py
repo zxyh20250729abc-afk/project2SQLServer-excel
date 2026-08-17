@@ -10,7 +10,7 @@ from typing import Any, Iterator
 import pandas as pd
 import pyodbc
 
-from reports import ReportDefinition, validate_report_read_only
+from reports import ReportSheet, validate_sheet_read_only
 
 
 class DatabaseConnectionError(RuntimeError):
@@ -131,26 +131,26 @@ def readonly_connection(settings: Mapping[str, Any]) -> Iterator[pyodbc.Connecti
         connection.close()
 
 
-def count_rows(connection: pyodbc.Connection, report: ReportDefinition, params: list[Any]) -> int:
-    validate_report_read_only(report)
+def count_rows(connection: pyodbc.Connection, sheet: ReportSheet, params: list[Any]) -> int:
+    validate_sheet_read_only(sheet)
     try:
-        row = connection.cursor().execute(report.count_sql, params).fetchone()
+        row = connection.cursor().execute(sheet.count_sql, params).fetchone()
         return int(row[0]) if row else 0
     except pyodbc.Error as exc:
         raise QueryExecutionError("统计查询失败，请稍后重试或联系管理员。") from exc
 
 
-def fetch_preview(connection: pyodbc.Connection, report: ReportDefinition, params: list[Any]) -> pd.DataFrame:
-    validate_report_read_only(report)
+def fetch_preview(connection: pyodbc.Connection, sheet: ReportSheet, params: list[Any]) -> pd.DataFrame:
+    validate_sheet_read_only(sheet)
     try:
-        return pd.read_sql_query(report.preview_sql, connection, params=params)
+        return pd.read_sql_query(sheet.preview_sql, connection, params=params)
     except Exception as exc:  # pandas 会包装 pyodbc 异常
         raise QueryExecutionError("预览查询失败，请检查筛选条件或联系管理员。") from exc
 
 
-def fetch_export(connection: pyodbc.Connection, report: ReportDefinition, params: list[Any]) -> pd.DataFrame:
-    validate_report_read_only(report)
+def fetch_export(connection: pyodbc.Connection, sheet: ReportSheet, params: list[Any]) -> pd.DataFrame:
+    validate_sheet_read_only(sheet)
     try:
-        return pd.read_sql_query(report.data_sql, connection, params=params)
+        return pd.read_sql_query(sheet.data_sql, connection, params=params)
     except Exception as exc:
         raise QueryExecutionError("导出查询失败，请稍后重试或联系管理员。") from exc

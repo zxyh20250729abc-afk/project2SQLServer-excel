@@ -1,6 +1,6 @@
 # 安全审查结论
 
-审查范围：`project2SQLServer导入excel系统` MVP 源代码、配置样例和交付机制。审查日期：2026-07-22。
+审查范围：`project2SQLServer导入excel系统` 源代码、配置样例和交付机制。审查日期：2026-08-17。
 
 ## 结论
 
@@ -10,8 +10,9 @@
 
 ## 已实施控制
 
-- 所有报表 SQL 固定于 `reports.py`；界面不接受任意 SQL。
-- 筛选条件发现仅使用固定的 `INFORMATION_SCHEMA.COLUMNS` 查询和固定的部门候选值查询；发现结果还须通过 `department`、`age` 白名单，不能自动暴露其他字段。
+- 所有报表 SQL 固定于 `reports.py`；6 份业务报表均由原始统计 SQL 改写为单条参数化 SELECT。界面不接受任意 SQL。
+- 原始脚本中的变量赋值已替换为 `?` 参数绑定；原始脚本的多结果集在应用中拆分为多个固定工作表查询，避免执行多语句。
+- 仅员工测试报表会使用固定的 `INFORMATION_SCHEMA.COLUMNS` 查询和固定的部门候选值查询；发现结果还须通过 `department`、`age` 白名单，不能自动暴露其他字段。
 - 每个 SQL 模板在执行前通过 `validate_read_only_sql`，仅允许单条 SELECT，并拒绝写入、DDL、执行权限及管理关键字。
 - 所有用户条件通过 pyodbc `?` 参数绑定，禁止字符串拼接 SQL。
 - 连接串指定 `ApplicationIntent=ReadOnly`；这是路由提示，不替代数据库权限。
@@ -27,9 +28,9 @@
 | 只读应用账号被误授予写权限 | DBA 执行权限核验脚本；禁止 `db_owner`、`db_datawriter`、`sysadmin`。 |
 | 维护者修改报表 SQL | 代码审查必须检查只读校验、参数绑定和视图来源；运行自动测试。 |
 | 密钥泄露 | 不提交密钥；使用部署平台密钥管理；泄露后立即轮换账号密码。 |
-| 导出敏感字段 | 仅通过 DBA/业务批准的视图暴露字段；筛选发现也只展示代码白名单字段。 |
+| 导出敏感字段 | DBA/业务必须逐份审核 6 个报表涉及的字段；生产优先授予只读视图的 SELECT，而非整库或整表权限。 |
 | 大范围查询影响性能 | 最大导出行数、查询超时、相关筛选字段索引和小范围上线验证。 |
 
 ## 审查限制
 
-当前环境未提供真实 SQL Server 及只读账号，因此无法完成真实数据库权限和网络连通性验证。该验证必须由接收方在目标环境按照 `docs/REAL_SQLSERVER_VALIDATION.md` 完成。
+业务报表涉及的真实业务库尚未在本地测试库验证。上线前必须由 DBA 对每份报表执行 `python scripts/verify_sqlserver_connection.py --report <报表key>`，并按 `docs/REAL_SQLSERVER_VALIDATION.md` 完成对象权限和结果口径验证。

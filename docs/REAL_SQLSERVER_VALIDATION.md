@@ -21,15 +21,15 @@ cp .streamlit/secrets.toml.example .streamlit/secrets.toml
 
 ## 2. DBA 必须完成的权限配置
 
-应用账号必须是专用账号，且在当前测试库中只获得 `dbo.employees` 的 `SELECT` 权限。不得使用 `sysadmin`、`db_owner`、`db_datawriter` 或任何具备写权限的共享账号。生产环境建议改为只读报表视图，并只授予该视图的 `SELECT` 权限。
+应用账号必须是专用账号，且只获得当前启用报表所需对象的 `SELECT` 权限。不得使用 `sysadmin`、`db_owner`、`db_datawriter` 或任何具备写权限的共享账号。生产环境建议由 DBA 建立只读报表视图，并只授予这些视图的 `SELECT` 权限。
 
 建议由 DBA 在变更流程中执行并审核类似配置（对象与账号名须替换为实际值）：
 
 ```sql
 USE [业务数据库];
 CREATE USER [report_export_reader] FOR LOGIN [report_export_reader];
-GRANT SELECT ON OBJECT::dbo.employees TO [report_export_reader];
-DENY INSERT, UPDATE, DELETE ON OBJECT::dbo.employees TO [report_export_reader];
+GRANT SELECT ON OBJECT::dbo.v_report_contract_amount_summary TO [report_export_reader];
+DENY INSERT, UPDATE, DELETE ON OBJECT::dbo.v_report_contract_amount_summary TO [report_export_reader];
 ```
 
 `CREATE USER` 和 `GRANT` 是 DBA 的一次性权限配置，不属于应用运行步骤；应用本身只执行查询。
@@ -48,17 +48,17 @@ mode = "sqlserver"
 再执行：
 
 ```bash
-python scripts/verify_sqlserver_connection.py
+python scripts/verify_sqlserver_connection.py --report employee_list
 ```
 
-该验证程序只运行 `SELECT SYSTEM_USER`、`SELECT DB_NAME()` 和受控报表的 `SELECT COUNT_BIG`。应用页面额外只读查询固定的字段元数据与最多 200 个部门候选值，用于动态生成筛选控件。两者均不写入 SQL Server，也不创建本地审计日志。
+该验证程序只运行 `SELECT SYSTEM_USER`、`SELECT DB_NAME()` 和受控报表的 `SELECT COUNT_BIG`。验证真实业务报表时，将 `employee_list` 替换为相应 key，例如 `finance_claim_detail`、`contract_amount_summary` 或 `contract_stamp_tax_detail`。应用页面额外只读查询固定的字段元数据与最多 200 个部门候选值，仅用于员工测试报表。两者均不写入 SQL Server，也不创建本地审计日志。
 
 然后以相同账号在目标数据库执行 `scripts/verify_sqlserver_permissions.sql`，确认权限结果中没有 `INSERT`、`UPDATE`、`DELETE`、`ALTER`、`CONTROL` 或 `EXECUTE`。
 
 ## 4. 上线验证
 
-1. 当前测试版本读取 `dbo.employees`；生产上线前，将 `reports.py` 的对象与字段替换为 DBA 批准的真实只读视图，并同步维护筛选字段白名单；保持所有条件使用 `?` 参数。
+1. 当前项目包含员工测试报表及 6 份预设业务报表。上线前，DBA 必须逐份确认 `reports.py` 的来源对象、字段口径、日期范围语义和 SELECT 授权；若改为视图，需保持字段含义与报表一致，并保持所有条件使用 `?` 参数。
 2. 执行 `pytest -q`，确认基础测试通过。
-3. 启动 `streamlit run app.py`，使用一个小的部门或年龄范围验证预览和 Excel 下载。
+3. 启动 `streamlit run app.py`，使用一个小的年度/月度或日期范围验证预览和 Excel 下载；多工作表报表应检查每个工作表。
 4. 查询 SQL Server 审计/扩展事件或数据库日志，确认仅出现 `SELECT`。
 5. 保留应用本地 `audit.db` 作为导出审计；该文件仅记录导出元数据，不会写入业务数据库。

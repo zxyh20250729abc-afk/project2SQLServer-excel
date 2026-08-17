@@ -89,6 +89,12 @@ def _remove_additional_filter_row(report_key: str, row_id: int) -> None:
     clear_last_result()
 
 
+def _clear_additional_filters(report_key: str) -> None:
+    """展示字段变化后清空旧条件，保证条件只能来自当前已选信息。"""
+    st.session_state[additional_filter_rows_key(report_key)] = []
+    clear_last_result()
+
+
 def additional_filter_widget_key(report_key: str, row_id: int, part: str) -> str:
     return f"additional_filter_{report_key}_{row_id}_{part}"
 
@@ -244,16 +250,22 @@ def _output_filter_label(output_filter: OutputFilter) -> str:
     return f"{output_filter.label}{operator_labels.get(output_filter.operator, output_filter.operator)}“{output_filter.value.strip()}”"
 
 
-def render_additional_filters(dataset: DatasetPresentation) -> tuple[list[OutputFilter], str | None]:
-    """按业务字段添加受控条件，页面从不接收 SQL 或底层字段名输入。"""
+def render_additional_filters(
+    dataset: DatasetPresentation,
+    selected_fields: list[str],
+) -> tuple[list[OutputFilter], str | None]:
+    """仅按已选展示字段添加受控条件，页面从不接收 SQL 或底层字段名输入。"""
     st.markdown("#### 添加筛选条件（可选）")
-    st.caption("可添加多项条件，所有条件会同时生效。字段可搜索；同一字段可分别设置上下限。")
+    st.caption("可从上一步已选信息中添加多项条件；所有条件会同时生效，同一字段可分别设置上下限。")
 
     rows_key = additional_filter_rows_key(dataset.report_key)
     row_ids: list[int] = list(st.session_state.get(rows_key, []))
     st.session_state.setdefault(rows_key, row_ids)
     field_by_column = {field.column_name: field for field in dataset.fields}
-    options = tuple(field_by_column)
+    options = tuple(column for column in selected_fields if column in field_by_column)
+    if not options:
+        st.info("请先在上一步至少选择一项要查看的信息，才能添加筛选条件。")
+        return [], None
     output_filters: list[OutputFilter] = []
     errors: list[str] = []
 
@@ -318,6 +330,8 @@ def render_field_picker(dataset: DatasetPresentation) -> list[str]:
         format_func=lambda column: next(field.label for field in dataset.fields if field.column_name == column),
         key=widget_key,
         help="系统只会展示和导出您选择的业务信息。",
+        on_change=_clear_additional_filters,
+        args=(dataset.report_key,),
     )
     with st.expander("字段说明", expanded=False):
         for field in dataset.fields:
@@ -373,7 +387,8 @@ def execute_query(
     """执行固定的只读查询，再仅保留用户选中的业务字段。"""
     raw_exports: dict[str, Any] = {}
     raw_previews: list[tuple[str, int, Any]] = []
-    approved_columns = tuple(field.column_name for field in dataset.fields)
+    # 筛选字段必须同时属于业务字段白名单和本次已选择的展示信息。
+    approved_columns = tuple(selected_fields)
     applied_filter_sheets: dict[str, tuple[str, ...]] = {}
 
     if mode == "demo":
@@ -535,14 +550,15 @@ def render_builder(dataset: DatasetPresentation, mode: str, sql_settings: dict[s
     st.caption("系统会自动关联已批准的业务数据；您无需了解数据表或字段名称。")
     render_safety_status(mode)
 
-    st.subheader("1. 选择查询条件")
+    st.subheader("1. 选择要查看的信息")
+    selected_fields = render_field_picker(dataset)
+    st.subheader("2. 设置查询条件")
+    st.caption("先选择要查看的信息；下方附加条件只能从这些已选信息中选择。")
     filters, filter_error = render_filters(report, mode, sql_settings)
     if filter_error:
         # 不能再把筛选项读取失败隐藏到点击查询之后，避免页面出现空白条件区。
         st.error(filter_error)
-    output_filters, output_filter_error = render_additional_filters(dataset)
-    st.subheader("2. 选择要查看的信息")
-    selected_fields = render_field_picker(dataset)
+    output_filters, output_filter_error = render_additional_filters(dataset, selected_fields)
     st.caption(query_summary(dataset, filters or {}, selected_fields, output_filters))
     submitted = st.button("查询预览", type="primary")
 

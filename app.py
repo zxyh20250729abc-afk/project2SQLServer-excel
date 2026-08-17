@@ -8,7 +8,7 @@ from typing import Any
 import streamlit as st
 
 from audit import record
-from catalog import DatasetPresentation, available_datasets, get_dataset, search_datasets
+from catalog import DatasetPresentation, available_datasets, get_dataset
 from database import (
     DatabaseConnectionError,
     QueryExecutionError,
@@ -28,6 +28,11 @@ from reports import OutputFilter, ReportDefinition, build_filtered_sheet, build_
 VIEW_KEY = "current_view"
 DATASET_KEY = "current_dataset_key"
 RESULT_KEY = "last_query_result"
+PREVIEW_SIGNATURE_KEY = "last_preview_signature"
+INITIAL_PREVIEW_SIGNATURE_KEY = "initial_preview_signature"
+PREVIEW_ERROR_KEY = "last_preview_error"
+EXCEL_DATA_KEY = "last_excel_data"
+EXCEL_FILENAME_KEY = "last_excel_filename"
 AUDIT_OPERATOR = "匿名访问"
 ADDITIONAL_FILTER_ROWS_KEY = "additional_filter_rows"
 ADDITIONAL_FILTER_COUNTER_KEY = "additional_filter_counter"
@@ -64,6 +69,11 @@ def initialize_session() -> None:
     st.session_state.setdefault(VIEW_KEY, "home")
     st.session_state.setdefault(DATASET_KEY, None)
     st.session_state.setdefault(RESULT_KEY, None)
+    st.session_state.setdefault(PREVIEW_SIGNATURE_KEY, None)
+    st.session_state.setdefault(INITIAL_PREVIEW_SIGNATURE_KEY, None)
+    st.session_state.setdefault(PREVIEW_ERROR_KEY, None)
+    st.session_state.setdefault(EXCEL_DATA_KEY, None)
+    st.session_state.setdefault(EXCEL_FILENAME_KEY, None)
 
 
 def filter_widget_key(report_key: str, filter_key: str) -> str:
@@ -110,18 +120,33 @@ def additional_filter_widget_key(report_key: str, row_id: int, part: str) -> str
 
 def clear_last_result() -> None:
     st.session_state[RESULT_KEY] = None
+    st.session_state[PREVIEW_SIGNATURE_KEY] = None
+    st.session_state[PREVIEW_ERROR_KEY] = None
+    clear_excel_export()
+
+
+def clear_excel_export() -> None:
+    """清除过期的完整导出文件，避免条件变化后下载旧数据。"""
+    st.session_state[EXCEL_DATA_KEY] = None
+    st.session_state[EXCEL_FILENAME_KEY] = None
+
+
+def reset_query_workspace() -> None:
+    """进入或离开查询事项时重置首次展示状态。"""
+    clear_last_result()
+    st.session_state[INITIAL_PREVIEW_SIGNATURE_KEY] = None
 
 
 def choose_dataset(dataset_key: str) -> None:
     st.session_state[DATASET_KEY] = dataset_key
     st.session_state[VIEW_KEY] = "builder"
-    clear_last_result()
+    reset_query_workspace()
     st.rerun()
 
 
 def go_home() -> None:
     st.session_state[VIEW_KEY] = "home"
-    clear_last_result()
+    reset_query_workspace()
     st.rerun()
 
 
@@ -211,7 +236,8 @@ def render_business_filters(report: ReportDefinition) -> tuple[dict[str, Any], s
     """按业务语言展示已批准的年度、月份或日期条件。"""
     values: dict[str, Any] = {}
     default_start, default_end = _default_date_range()
-    columns = st.columns(min(max(len(report.filters), 1), 3))
+    # 查询设置位于工作台左侧，采用两列避免控件和业务文字过于拥挤。
+    columns = st.columns(min(max(len(report.filters), 1), 2))
 
     for index, definition in enumerate(report.filters):
         widget_key = filter_widget_key(report.key, definition.key)
@@ -283,15 +309,6 @@ def render_additional_filters(
     selected_fields: list[str],
 ) -> tuple[list[OutputFilter], str | None]:
     """仅按已选展示字段添加受控条件，页面从不接收 SQL 或底层字段名输入。"""
-    st.markdown("#### 添加筛选条件（可选）")
-    st.caption("可从上一步已选信息中添加多项条件；所有条件会同时生效，同一字段可分别设置上下限。")
-    with st.expander("匹配方式和筛选值怎么填写？", expanded=False):
-        st.markdown("- **包含**：查找字段中带有该文字的记录，例如“华东”可以查到“华东一区”。")
-        st.markdown("- **等于**：查找完全相同的记录，例如“财务部”不会匹配“财务共享中心”。")
-        st.markdown("- **大于等于 / 小于等于**：只用于金额、税额等数字字段；只填数字，例如 `10000` 或 `10000.50`。")
-        st.markdown("- **日期字段**：会显示开始日期和结束日期；只填一端也可以，结束日期当天会被包含。")
-        st.markdown("- 不要在筛选值中输入 `%`、`_`、`≥`、`≤`、货币符号或单位；比较方式请在页面中选择。")
-
     rows_key = additional_filter_rows_key(dataset.report_key)
     row_ids: list[int] = list(st.session_state.get(rows_key, []))
     st.session_state.setdefault(rows_key, row_ids)
@@ -302,9 +319,16 @@ def render_additional_filters(
         return [], None
     output_filters: list[OutputFilter] = []
     errors: list[str] = []
+    with st.expander(f"进一步筛选（{len(row_ids)} 项，可选）", expanded=bool(row_ids)):
+        st.caption("从已选择的信息中添加条件；所有条件会同时生效。同一字段可分别设置上下限。")
+        with st.expander("匹配方式和筛选值怎么填写？", expanded=False):
+            st.markdown("- **包含**：查找字段中带有该文字的记录，例如“华东”可以查到“华东一区”。")
+            st.markdown("- **等于**：查找完全相同的记录，例如“财务部”不会匹配“财务共享中心”。")
+            st.markdown("- **大于等于 / 小于等于**：只用于金额、税额等数字字段；只填数字，例如 `10000` 或 `10000.50`。")
+            st.markdown("- **日期字段**：会显示开始日期和结束日期；只填一端也可以，结束日期当天会被包含。")
+            st.markdown("- 不要在筛选值中输入 `%`、`_`、`≥`、`≤`、货币符号或单位；比较方式请在页面中选择。")
 
-    for position, row_id in enumerate(row_ids, start=1):
-        with st.container(border=True):
+        for position, row_id in enumerate(row_ids, start=1):
             st.caption(f"条件 {position}")
             field_column_key = additional_filter_widget_key(dataset.report_key, row_id, "column")
             operator_key = additional_filter_widget_key(dataset.report_key, row_id, "operator")
@@ -321,10 +345,8 @@ def render_additional_filters(
             operator_labels = {"contains": "包含", "equals": "等于", "gte": "大于等于", "lte": "小于等于"}
 
             if _field_supports_date_filter(field):
-                first, second, third, fourth = st.columns((3, 3, 3, 1))
+                first, second, third = st.columns((4, 4, 1))
                 with first:
-                    st.caption(f"当前字段：{field.label}")
-                with second:
                     start_date = st.date_input(
                         "开始日期（可选）",
                         value=None,
@@ -332,7 +354,7 @@ def render_additional_filters(
                         format="YYYY-MM-DD",
                         help="不填写则不限制开始日期。",
                     )
-                with third:
+                with second:
                     end_date = st.date_input(
                         "结束日期（含，可选）",
                         value=None,
@@ -340,16 +362,10 @@ def render_additional_filters(
                         format="YYYY-MM-DD",
                         help="不填写则不限制结束日期；填写后，该日期当天也会包含在结果中。",
                     )
-                with fourth:
+                with third:
                     st.write("")
-                    st.button(
-                        "移除",
-                        key=additional_filter_widget_key(dataset.report_key, row_id, "remove"),
-                        on_click=_remove_additional_filter_row,
-                        args=(dataset.report_key, row_id),
-                    )
+                    st.button("移除", key=additional_filter_widget_key(dataset.report_key, row_id, "remove"), on_click=_remove_additional_filter_row, args=(dataset.report_key, row_id))
 
-                st.caption("时间范围：可只填写开始日期或结束日期；同时填写时，开始日期不能晚于结束日期。")
                 if start_date is not None and end_date is not None and start_date > end_date:
                     errors.append(f"条件 {position} 的开始日期不能晚于结束日期。")
                 elif start_date is not None or end_date is not None:
@@ -361,10 +377,8 @@ def render_additional_filters(
                     errors.append(f"请填写条件 {position} 的开始日期或结束日期，或移除该条件。")
             else:
                 operator_options = ("contains", "equals", "gte", "lte") if _field_supports_numeric_filter(field) else ("contains", "equals")
-                first, second, third, fourth = st.columns((3, 2, 4, 1))
+                first, second, third = st.columns((3, 4, 1))
                 with first:
-                    st.caption(f"当前字段：{field.label}")
-                with second:
                     if st.session_state.get(operator_key) not in operator_options:
                         st.session_state[operator_key] = operator_options[0]
                     operator = st.selectbox(
@@ -374,36 +388,19 @@ def render_additional_filters(
                         key=operator_key,
                         help="选择系统如何比较该字段与您填写的筛选值。",
                     )
+                with second:
+                    value = st.text_input("筛选值", key=value_key, placeholder=_filter_value_placeholder(field), help=_filter_value_help(field), max_chars=200)
                 with third:
-                    value = st.text_input(
-                        "筛选值",
-                        key=value_key,
-                        placeholder=_filter_value_placeholder(field),
-                        help=_filter_value_help(field),
-                        max_chars=200,
-                    )
-                with fourth:
                     st.write("")
-                    st.button(
-                        "移除",
-                        key=additional_filter_widget_key(dataset.report_key, row_id, "remove"),
-                        on_click=_remove_additional_filter_row,
-                        args=(dataset.report_key, row_id),
-                    )
+                    st.button("移除", key=additional_filter_widget_key(dataset.report_key, row_id, "remove"), on_click=_remove_additional_filter_row, args=(dataset.report_key, row_id))
 
                 st.caption(_OPERATOR_HELP[operator])
-
                 if value.strip():
                     output_filters.append(OutputFilter(field.column_name, field.label, operator, value))
                 else:
                     errors.append(f"请填写条件 {position} 的“{field.label}”筛选值，或移除该条件。")
 
-    st.button(
-        "＋ 添加一项条件",
-        key=f"add_additional_filter_{dataset.report_key}",
-        on_click=_add_additional_filter_row,
-        args=(dataset.report_key,),
-    )
+        st.button("＋ 添加一项条件", key=f"add_additional_filter_{dataset.report_key}", on_click=_add_additional_filter_row, args=(dataset.report_key,))
     return output_filters, errors[0] if errors else None
 
 
@@ -471,8 +468,9 @@ def execute_query(
     selected_fields: list[str],
     sql_settings: dict[str, Any],
     app_settings: dict[str, Any],
+    include_export: bool = False,
 ) -> dict[str, Any]:
-    """执行固定的只读查询，再仅保留用户选中的业务字段。"""
+    """执行固定的只读查询；实时预览不会读取全量导出数据。"""
     raw_exports: dict[str, Any] = {}
     raw_previews: list[tuple[str, int, Any]] = []
     # 筛选字段必须同时属于业务字段白名单和本次已选择的展示信息。
@@ -486,7 +484,8 @@ def execute_query(
             output_filters=output_filters,
             approved_columns=approved_columns,
         )
-        raw_exports[report.sheets[0].name] = export_data
+        if include_export:
+            raw_exports[report.sheets[0].name] = export_data
         raw_previews.append((report.sheets[0].name, len(export_data), export_data.head(100)))
         applied_filter_sheets[report.sheets[0].name] = tuple(_output_filter_label(item) for item in output_filters)
     else:
@@ -509,7 +508,7 @@ def execute_query(
                 params = [*base_params, *output_params]
                 row_count = count_rows(connection, prepared_sheet, params)
                 total_rows += row_count
-                if total_rows > max_export_rows:
+                if include_export and total_rows > max_export_rows:
                     raise QueryExecutionError(f"查询结果超过 {max_export_rows:,} 行，请缩小筛选条件。")
                 sheet_counts.append((prepared_sheet, row_count, params))
                 applied_filter_sheets[prepared_sheet.name] = applied_labels
@@ -519,26 +518,32 @@ def execute_query(
 
             for sheet, row_count, params in sheet_counts:
                 raw_previews.append((sheet.name, row_count, fetch_preview(connection, sheet, params)))
-                raw_exports[sheet.name] = fetch_export(connection, sheet, params)
+                if include_export:
+                    raw_exports[sheet.name] = fetch_export(connection, sheet, params)
 
     visible_exports: dict[str, Any] = {}
     visible_previews: list[tuple[str, int, Any]] = []
     omitted_sheets: list[str] = []
     for sheet_name, row_count, preview in raw_previews:
         visible_preview = choose_visible_columns(preview, selected_fields)
-        visible_export = choose_visible_columns(raw_exports[sheet_name], selected_fields)
-        if visible_preview is None or visible_export is None:
+        if visible_preview is None:
             omitted_sheets.append(sheet_name)
             continue
-        visible_exports[sheet_name] = visible_export
+        if include_export:
+            visible_export = choose_visible_columns(raw_exports[sheet_name], selected_fields)
+            if visible_export is None:
+                omitted_sheets.append(sheet_name)
+                continue
+            visible_exports[sheet_name] = visible_export
         visible_previews.append((sheet_name, row_count, visible_preview))
 
-    if not visible_exports:
+    if not visible_previews:
         raise QueryExecutionError("当前选择的字段不适用于该查询结果，请至少选择一项推荐信息。")
     return {
         "report_key": report.key,
         "filters": filters,
         "selected_fields": selected_fields,
+        "output_filters": tuple(output_filters),
         "exports": visible_exports,
         "previews": visible_previews,
         "omitted_sheets": omitted_sheets,
@@ -547,12 +552,43 @@ def execute_query(
     }
 
 
-def render_query_result(result: dict[str, Any], dataset: DatasetPresentation) -> None:
+def preview_signature(
+    *,
+    mode: str,
+    report: ReportDefinition,
+    filters: dict[str, Any],
+    selected_fields: list[str],
+    output_filters: list[OutputFilter],
+) -> tuple[Any, ...]:
+    """将当前选择转换成可比较的签名，避免无变化时重复查询。"""
+    normalized_filters = tuple(
+        (key, value.isoformat() if isinstance(value, date) else str(value))
+        for key, value in sorted(filters.items())
+    )
+    normalized_output_filters = tuple(
+        (item.column_name, item.operator, item.value.strip()) for item in output_filters
+    )
+    return mode, report.key, tuple(selected_fields), normalized_filters, normalized_output_filters
+
+
+def audit_filter_payload(filters: dict[str, Any], output_filters: list[OutputFilter]) -> dict[str, Any]:
+    """导出审计只记录业务条件，不记录 SQL、凭据或结果明细。"""
+    return {
+        **filters,
+        "additional_conditions": [
+            {"field": item.label, "operator": item.operator, "value": item.value.strip()}
+            for item in output_filters
+        ],
+    }
+
+
+def render_preview_result(result: dict[str, Any], dataset: DatasetPresentation) -> bool:
+    """右侧工作区：保持可见的前 100 行实时预览，返回是否请求全量 Excel。"""
     previews: list[tuple[str, int, Any]] = result["previews"]
     total_rows = sum(row_count for _, row_count, _ in previews)
-    st.divider()
-    st.subheader("查询结果")
-    st.success(f"查询完成，共 {total_rows:,} 行。数据仅来自您有权限访问的范围。")
+    st.subheader("实时预览")
+    st.caption("左侧字段或条件变更后会自动更新；为保护性能，此处每张表最多展示前 100 行。")
+    st.success(f"当前条件共匹配 {total_rows:,} 行。")
     if result["omitted_sheets"]:
         st.caption(f"未展示 {', '.join(result['omitted_sheets'])}，因为当前未选择其中适用的字段。")
     applied_filter_sheets: dict[str, tuple[str, ...]] = result.get("applied_filter_sheets", {})
@@ -566,54 +602,75 @@ def render_query_result(result: dict[str, Any], dataset: DatasetPresentation) ->
         if partial_notes:
             st.info("已添加的条件仅作用于包含该字段的工作表；" + "；".join(partial_notes))
 
-    for sheet_name, row_count, preview in previews:
-        st.markdown(f"##### {sheet_name}")
+    if len(previews) == 1:
+        sheet_name, row_count, preview = previews[0]
         if row_count:
-            st.caption(f"展示前 {len(preview):,} 行")
-            st.dataframe(preview, width="stretch", hide_index=True)
+            st.caption(f"{sheet_name}｜展示前 {len(preview):,} 行")
+            st.dataframe(preview, width="stretch", hide_index=True, height=480)
         else:
-            st.caption("当前条件没有数据。")
+            st.info("当前条件没有数据。")
+    else:
+        tabs = st.tabs([sheet_name for sheet_name, _, _ in previews])
+        for tab, (sheet_name, row_count, preview) in zip(tabs, previews):
+            with tab:
+                if row_count:
+                    st.caption(f"展示前 {len(preview):,} 行")
+                    st.dataframe(preview, width="stretch", hide_index=True, height=440)
+                else:
+                    st.info("当前条件没有数据。")
 
     if total_rows == 0:
-        st.info("当前条件没有数据。您可以返回上方调整日期、部门或其他条件。")
-        return
+        return False
 
-    excel_data = dataframes_to_excel(result["exports"])
+    st.divider()
+    st.caption("确认预览无误后，再生成包含全部匹配数据的 Excel 文件。")
+    return st.button("生成 Excel（全量数据）", key=f"generate_excel_{result['report_key']}", type="primary", use_container_width=True)
+
+
+def render_excel_download(dataset: DatasetPresentation) -> None:
+    excel_data = st.session_state.get(EXCEL_DATA_KEY)
+    filename = st.session_state.get(EXCEL_FILENAME_KEY)
+    if not excel_data or not filename:
+        return
+    st.success("Excel 已生成，可下载。")
     st.download_button(
         "下载 Excel",
         data=excel_data,
-        file_name=create_filename(dataset.title.replace("查询", "")),
+        file_name=filename,
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         type="primary",
+        use_container_width=True,
     )
 
 
 def render_home(mode: str) -> None:
     st.title("数据查询助手")
-    st.caption("用业务语言查数据：选择事项、填写条件、预览后导出 Excel。")
     render_safety_status(mode)
 
-    query_text = st.text_input("您想查询什么？", placeholder="例如：报销发票、合同金额、认款明细")
-    datasets = search_datasets(available_datasets(mode), query_text)
+    datasets = available_datasets(mode)
 
     normal_datasets = [dataset for dataset in datasets if not dataset.is_system_test]
     if normal_datasets:
-        st.subheader("按业务事项开始")
-        domains: dict[str, list[DatasetPresentation]] = {}
-        for dataset in normal_datasets:
-            domains.setdefault(dataset.domain_name, []).append(dataset)
-        for domain_name, domain_datasets in domains.items():
-            st.markdown(f"#### {domain_name}")
-            columns = st.columns(min(3, len(domain_datasets)))
-            for index, dataset in enumerate(domain_datasets):
-                with columns[index % len(columns)]:
-                    with st.container(border=True):
-                        st.markdown(f"**{dataset.title}**")
-                        st.caption(dataset.description)
-                        if st.button("开始查询", key=f"start_{dataset.report_key}", use_container_width=True):
-                            choose_dataset(dataset.report_key)
+        st.subheader("选择业务模块")
+        finance_tab, contract_tab = st.tabs(("财务数据", "合同管理"))
+        domain_tabs = (("finance", finance_tab, "财务数据"), ("contract", contract_tab, "合同管理"))
+        for domain_key, tab, domain_name in domain_tabs:
+            with tab:
+                domain_datasets = [dataset for dataset in normal_datasets if dataset.domain_key == domain_key]
+                if not domain_datasets:
+                    st.info(f"未找到“{domain_name}”相关事项。")
+                    continue
+                st.caption(f"{domain_name} › 选择具体查询事项")
+                columns = st.columns(min(2, len(domain_datasets)))
+                for index, dataset in enumerate(domain_datasets):
+                    with columns[index % len(columns)]:
+                        with st.container(border=True):
+                            st.markdown(f"**{dataset.title.replace('查询', '')}**")
+                            st.caption(dataset.description)
+                            if st.button("进入查询", key=f"start_{dataset.report_key}", use_container_width=True):
+                                choose_dataset(dataset.report_key)
     else:
-        st.info("没有找到匹配的业务事项。可尝试“报销”“合同”“认款”等关键词。")
+        st.info("当前没有可用的业务事项，请联系管理员检查业务模块配置。")
 
     test_datasets = [dataset for dataset in datasets if dataset.is_system_test]
     if test_datasets:
@@ -638,69 +695,123 @@ def render_builder(dataset: DatasetPresentation, mode: str, sql_settings: dict[s
     st.caption("系统会自动关联已批准的业务数据；您无需了解数据表或字段名称。")
     render_safety_status(mode)
 
-    st.subheader("1. 选择要查看的信息")
-    selected_fields = render_field_picker(dataset)
-    st.subheader("2. 设置查询条件")
-    st.caption("先选择要查看的信息；下方附加条件只能从这些已选信息中选择。")
-    filters, filter_error = render_filters(report, mode, sql_settings)
-    if filter_error:
-        # 不能再把筛选项读取失败隐藏到点击查询之后，避免页面出现空白条件区。
-        st.error(filter_error)
-    output_filters, output_filter_error = render_additional_filters(dataset, selected_fields)
-    st.caption(query_summary(dataset, filters or {}, selected_fields, output_filters))
-    submitted = st.button("查询预览", type="primary")
+    settings_column, preview_column = st.columns((4, 6), gap="large")
+    with settings_column:
+        with st.container(border=True):
+            st.subheader("1. 选择要查看的信息")
+            selected_fields = render_field_picker(dataset)
+            st.divider()
+            st.subheader("2. 设置查询条件")
+            st.caption("基础范围用于限定本次查询；进一步筛选只能从上方已选信息中选择。")
+            filters, filter_error = render_filters(report, mode, sql_settings)
+            if filter_error:
+                st.error(filter_error)
+            output_filters, output_filter_error = render_additional_filters(dataset, selected_fields)
+            st.caption(query_summary(dataset, filters or {}, selected_fields, output_filters))
 
-    if submitted:
-        audit_path = str(app_settings.get("audit_db_path", "audit.db"))
-        audit_filters = {
-            **(filters or {}),
-            "additional_conditions": [
-                {"field": item.label, "operator": item.operator, "value": item.value.strip()}
-                for item in output_filters
-            ],
-        }
-        if filter_error:
-            st.warning(filter_error)
-            return
-        if filters is None:
-            st.error("无法生成查询条件，已停止查询。")
-            return
-        if output_filter_error:
-            st.warning(output_filter_error)
-            return
+    is_ready = not filter_error and filters is not None and not output_filter_error and bool(selected_fields)
+    signature: tuple[Any, ...] | None = None
+    if is_ready:
+        signature = preview_signature(
+            mode=mode,
+            report=report,
+            filters=filters,
+            selected_fields=selected_fields,
+            output_filters=output_filters,
+        )
+        initial_signature = st.session_state.get(INITIAL_PREVIEW_SIGNATURE_KEY)
+        if initial_signature is None:
+            # 首次进入只呈现默认条件，不立即对真实业务库发起查询；任一设置变化后实时更新。
+            st.session_state[INITIAL_PREVIEW_SIGNATURE_KEY] = signature
+            st.session_state[PREVIEW_ERROR_KEY] = None
+            preview_error = None
+        elif st.session_state.get(PREVIEW_SIGNATURE_KEY) != signature:
+            # 条件变更后先撤销旧导出，再只重新读取前 100 行预览。
+            clear_excel_export()
+            try:
+                with st.spinner("正在更新预览..."):
+                    result = execute_query(
+                        mode=mode,
+                        report=report,
+                        dataset=dataset,
+                        filters=filters,
+                        output_filters=output_filters,
+                        selected_fields=selected_fields,
+                        sql_settings=sql_settings,
+                        app_settings=app_settings,
+                        include_export=False,
+                    )
+                st.session_state[RESULT_KEY] = result
+                st.session_state[PREVIEW_SIGNATURE_KEY] = signature
+                st.session_state[PREVIEW_ERROR_KEY] = None
+            except ReadonlyAccountError as exc:
+                clear_last_result()
+                st.session_state[PREVIEW_SIGNATURE_KEY] = signature
+                preview_error = str(exc)
+                st.session_state[PREVIEW_ERROR_KEY] = preview_error
+            except (DatabaseConnectionError, QueryExecutionError, ValueError) as exc:
+                clear_last_result()
+                st.session_state[PREVIEW_SIGNATURE_KEY] = signature
+                preview_error = str(exc)
+                st.session_state[PREVIEW_ERROR_KEY] = preview_error
+            except Exception:
+                clear_last_result()
+                st.session_state[PREVIEW_SIGNATURE_KEY] = signature
+                preview_error = "系统处理失败，请联系管理员并提供操作时间。"
+                st.session_state[PREVIEW_ERROR_KEY] = preview_error
+            else:
+                preview_error = None
+        else:
+            preview_error = st.session_state.get(PREVIEW_ERROR_KEY)
+    else:
+        clear_excel_export()
+        preview_error = filter_error or output_filter_error
         if not selected_fields:
-            st.warning("请至少选择一项要查看的信息。")
-            return
+            preview_error = "请至少选择一项要查看的信息。"
 
-        try:
-            with st.spinner("正在准备数据..."):
-                result = execute_query(
-                    mode=mode,
-                    report=report,
-                    dataset=dataset,
-                    filters=filters,
-                    output_filters=output_filters,
-                    selected_fields=selected_fields,
-                    sql_settings=sql_settings,
-                    app_settings=app_settings,
-                )
-            total_rows = sum(row_count for _, row_count, _ in result["previews"])
-            record(audit_path, operator_id=AUDIT_OPERATOR, report_key=report.key, filters=audit_filters, status="success", row_count=total_rows)
-            st.session_state[RESULT_KEY] = result
-        except ReadonlyAccountError as exc:
-            record(audit_path, operator_id=AUDIT_OPERATOR, report_key=report.key, filters=audit_filters, status="failure", error_summary="Readonly account validation failed")
-            st.error(str(exc))
-            st.warning("系统已阻止查询；请使用 DBA 配置的专用只读账号。")
-        except (DatabaseConnectionError, QueryExecutionError, ValueError) as exc:
-            record(audit_path, operator_id=AUDIT_OPERATOR, report_key=report.key, filters=audit_filters, status="failure", error_summary=str(exc))
-            st.error(str(exc))
-        except Exception:
-            record(audit_path, operator_id=AUDIT_OPERATOR, report_key=report.key, filters=audit_filters, status="failure", error_summary="Unexpected application error")
-            st.error("系统处理失败，请联系管理员并提供操作时间。")
-
-    result = st.session_state.get(RESULT_KEY)
-    if result and result.get("report_key") == report.key:
-        render_query_result(result, dataset)
+    with preview_column:
+        with st.container(border=True):
+            result = st.session_state.get(RESULT_KEY)
+            if preview_error:
+                st.subheader("实时预览")
+                st.info(preview_error)
+            elif result and result.get("report_key") == report.key and st.session_state.get(PREVIEW_SIGNATURE_KEY) == signature:
+                export_requested = render_preview_result(result, dataset)
+                if export_requested:
+                    audit_path = str(app_settings.get("audit_db_path", "audit.db"))
+                    audit_filters = audit_filter_payload(filters, output_filters)
+                    try:
+                        with st.spinner("正在生成完整 Excel..."):
+                            export_result = execute_query(
+                                mode=mode,
+                                report=report,
+                                dataset=dataset,
+                                filters=filters,
+                                output_filters=output_filters,
+                                selected_fields=selected_fields,
+                                sql_settings=sql_settings,
+                                app_settings=app_settings,
+                                include_export=True,
+                            )
+                        total_rows = sum(row_count for _, row_count, _ in export_result["previews"])
+                        st.session_state[RESULT_KEY] = export_result
+                        st.session_state[EXCEL_DATA_KEY] = dataframes_to_excel(export_result["exports"])
+                        st.session_state[EXCEL_FILENAME_KEY] = create_filename(dataset.title.replace("查询", ""))
+                        record(audit_path, operator_id=AUDIT_OPERATOR, report_key=report.key, filters=audit_filters, status="success", row_count=total_rows)
+                    except ReadonlyAccountError as exc:
+                        record(audit_path, operator_id=AUDIT_OPERATOR, report_key=report.key, filters=audit_filters, status="failure", error_summary="Readonly account validation failed")
+                        st.error(str(exc))
+                        st.warning("系统已阻止导出；请使用 DBA 配置的专用只读账号。")
+                    except (DatabaseConnectionError, QueryExecutionError, ValueError) as exc:
+                        record(audit_path, operator_id=AUDIT_OPERATOR, report_key=report.key, filters=audit_filters, status="failure", error_summary=str(exc))
+                        st.error(str(exc))
+                    except Exception:
+                        record(audit_path, operator_id=AUDIT_OPERATOR, report_key=report.key, filters=audit_filters, status="failure", error_summary="Unexpected application error")
+                        st.error("生成 Excel 失败，请联系管理员并提供操作时间。")
+                render_excel_download(dataset)
+            else:
+                st.subheader("实时预览")
+                st.caption("请选择要查看的信息并设置有效条件，结果会自动显示在这里。")
 
 
 def main() -> None:

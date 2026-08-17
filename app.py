@@ -7,7 +7,7 @@ from typing import Any
 
 import streamlit as st
 
-from audit import list_saved_queries, record, save_query
+from audit import record
 from catalog import DatasetPresentation, available_datasets, get_dataset, search_datasets
 from database import DatabaseConnectionError, QueryExecutionError, ReadonlyAccountError, count_rows, fetch_export, fetch_preview, readonly_connection
 from demo_data import filter_demo_employees, load_demo_employees
@@ -16,10 +16,10 @@ from exporter import create_filename, dataframes_to_excel
 from reports import ReportDefinition, build_params, get_report
 
 
-OPERATOR_KEY = "current_operator_id"
 VIEW_KEY = "current_view"
 DATASET_KEY = "current_dataset_key"
 RESULT_KEY = "last_query_result"
+AUDIT_OPERATOR = "匿名访问"
 
 
 def get_settings() -> tuple[str, dict[str, Any], dict[str, Any]]:
@@ -67,24 +67,6 @@ def go_home() -> None:
     st.session_state[VIEW_KEY] = "home"
     clear_last_result()
     st.rerun()
-
-
-def render_sidebar(mode: str) -> str:
-    """将审计身份放入侧栏，避免打断每次业务查询。"""
-    with st.sidebar:
-        st.header("当前使用人")
-        operator_id = st.text_input(
-            "姓名或工号",
-            key=OPERATOR_KEY,
-            max_chars=100,
-            help="仅用于记录导出审计，不会写入业务数据库。",
-        )
-        st.caption("首次填写后，本次打开页面期间会自动保留。")
-        st.divider()
-        if st.button("⌂ 返回查询首页", use_container_width=True):
-            go_home()
-        st.caption("🔒 SQL Server 只读模式" if mode == "sqlserver" else "🧪 本地模拟数据模式")
-    return operator_id.strip()
 
 
 def render_safety_status(mode: str) -> None:
@@ -311,7 +293,7 @@ def execute_query(
     }
 
 
-def render_query_result(result: dict[str, Any], dataset: DatasetPresentation, operator_id: str, audit_path: str) -> None:
+def render_query_result(result: dict[str, Any], dataset: DatasetPresentation) -> None:
     previews: list[tuple[str, int, Any]] = result["previews"]
     total_rows = sum(row_count for _, row_count, _ in previews)
     st.divider()
@@ -332,81 +314,23 @@ def render_query_result(result: dict[str, Any], dataset: DatasetPresentation, op
         st.info("当前条件没有数据。您可以返回上方调整日期、部门或其他条件。")
         return
 
-    col1, col2 = st.columns((1, 1))
-    with col1:
-        excel_data = dataframes_to_excel(result["exports"])
-        st.download_button(
-            "下载 Excel",
-            data=excel_data,
-            file_name=create_filename(dataset.title.replace("查询", "")),
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            type="primary",
-            use_container_width=True,
-        )
-    with col2:
-        with st.form(f"save_query_{dataset.report_key}", clear_on_submit=True):
-            query_name = st.text_input("保存为我的常用查询", placeholder="例如：销售部月度发票核对", max_chars=100)
-            save_submitted = st.form_submit_button("保存当前条件", use_container_width=True)
-        if save_submitted:
-            try:
-                save_query(
-                    audit_path,
-                    operator_id=operator_id,
-                    query_name=query_name,
-                    dataset_key=dataset.report_key,
-                    filters=result["filters"],
-                    selected_fields=result["selected_fields"],
-                )
-                st.success("已保存到“我的常用查询”。")
-            except ValueError as exc:
-                st.warning(str(exc))
+    excel_data = dataframes_to_excel(result["exports"])
+    st.download_button(
+        "下载 Excel",
+        data=excel_data,
+        file_name=create_filename(dataset.title.replace("查询", "")),
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        type="primary",
+    )
 
 
-def apply_saved_query(saved_query: dict[str, Any]) -> None:
-    """把常用查询恢复为页面控件的预填值。"""
-    dataset = get_dataset(saved_query["dataset_key"])
-    for filter_key, value in saved_query["filters"].items():
-        widget_key = filter_widget_key(dataset.report_key, filter_key)
-        if filter_key in {"start_date", "end_date"} and isinstance(value, str):
-            try:
-                st.session_state[widget_key] = date.fromisoformat(value)
-            except ValueError:
-                continue
-        else:
-            st.session_state[widget_key] = value
-    st.session_state[field_widget_key(dataset.report_key)] = saved_query["selected_fields"]
-    st.session_state[DATASET_KEY] = dataset.report_key
-    st.session_state[VIEW_KEY] = "builder"
-    clear_last_result()
-    st.rerun()
-
-
-def render_home(mode: str, operator_id: str, app_settings: dict[str, Any]) -> None:
+def render_home(mode: str) -> None:
     st.title("数据查询助手")
     st.caption("用业务语言查数据：选择事项、填写条件、预览后导出 Excel。")
     render_safety_status(mode)
 
     query_text = st.text_input("您想查询什么？", placeholder="例如：报销发票、合同金额、认款明细")
     datasets = search_datasets(available_datasets(mode), query_text)
-    audit_path = str(app_settings.get("audit_db_path", "audit.db"))
-
-    if operator_id:
-        # 常用查询只在当前模式仍可用的业务事项中显示，避免演示模式误打开生产查询。
-        available_keys = {dataset.report_key for dataset in available_datasets(mode)}
-        saved_queries = [
-            item
-            for item in list_saved_queries(audit_path, operator_id=operator_id)
-            if item["dataset_key"] in available_keys
-        ]
-        if saved_queries:
-            st.subheader("我的常用查询")
-            columns = st.columns(min(3, len(saved_queries)))
-            for index, saved_query in enumerate(saved_queries):
-                with columns[index % len(columns)]:
-                    if st.button(f"★ {saved_query['query_name']}", key=f"saved_{index}", use_container_width=True):
-                        apply_saved_query(saved_query)
-    else:
-        st.caption("请先在左侧填写姓名或工号，即可保存和使用“我的常用查询”。")
 
     normal_datasets = [dataset for dataset in datasets if not dataset.is_system_test]
     if normal_datasets:
@@ -436,7 +360,7 @@ def render_home(mode: str, operator_id: str, app_settings: dict[str, Any]) -> No
                     choose_dataset(dataset.report_key)
 
 
-def render_builder(dataset: DatasetPresentation, mode: str, sql_settings: dict[str, Any], app_settings: dict[str, Any], operator_id: str) -> None:
+def render_builder(dataset: DatasetPresentation, mode: str, sql_settings: dict[str, Any], app_settings: dict[str, Any]) -> None:
     report = get_report(dataset.report_key)
     if st.button("← 返回首页"):
         go_home()
@@ -463,9 +387,6 @@ def render_builder(dataset: DatasetPresentation, mode: str, sql_settings: dict[s
 
     if submitted:
         audit_path = str(app_settings.get("audit_db_path", "audit.db"))
-        if not operator_id:
-            st.warning("请先在左侧填写姓名或工号，用于导出审计。")
-            return
         if filter_error:
             st.warning(filter_error)
             return
@@ -487,22 +408,22 @@ def render_builder(dataset: DatasetPresentation, mode: str, sql_settings: dict[s
                     app_settings=app_settings,
                 )
             total_rows = sum(row_count for _, row_count, _ in result["previews"])
-            record(audit_path, operator_id=operator_id, report_key=report.key, filters=filters, status="success", row_count=total_rows)
+            record(audit_path, operator_id=AUDIT_OPERATOR, report_key=report.key, filters=filters, status="success", row_count=total_rows)
             st.session_state[RESULT_KEY] = result
         except ReadonlyAccountError as exc:
-            record(audit_path, operator_id=operator_id, report_key=report.key, filters=filters, status="failure", error_summary="Readonly account validation failed")
+            record(audit_path, operator_id=AUDIT_OPERATOR, report_key=report.key, filters=filters, status="failure", error_summary="Readonly account validation failed")
             st.error(str(exc))
             st.warning("系统已阻止查询；请使用 DBA 配置的专用只读账号。")
         except (DatabaseConnectionError, QueryExecutionError, ValueError) as exc:
-            record(audit_path, operator_id=operator_id, report_key=report.key, filters=filters, status="failure", error_summary=str(exc))
+            record(audit_path, operator_id=AUDIT_OPERATOR, report_key=report.key, filters=filters, status="failure", error_summary=str(exc))
             st.error(str(exc))
         except Exception:
-            record(audit_path, operator_id=operator_id, report_key=report.key, filters=filters, status="failure", error_summary="Unexpected application error")
+            record(audit_path, operator_id=AUDIT_OPERATOR, report_key=report.key, filters=filters, status="failure", error_summary="Unexpected application error")
             st.error("系统处理失败，请联系管理员并提供操作时间。")
 
     result = st.session_state.get(RESULT_KEY)
     if result and result.get("report_key") == report.key:
-        render_query_result(result, dataset, operator_id, str(app_settings.get("audit_db_path", "audit.db")))
+        render_query_result(result, dataset)
 
 
 def main() -> None:
@@ -514,16 +435,15 @@ def main() -> None:
         st.error(str(exc))
         st.stop()
 
-    operator_id = render_sidebar(mode)
     if st.session_state[VIEW_KEY] == "builder" and st.session_state.get(DATASET_KEY):
         try:
             dataset = get_dataset(st.session_state[DATASET_KEY])
         except ValueError:
             go_home()
             return
-        render_builder(dataset, mode, sql_settings, app_settings, operator_id)
+        render_builder(dataset, mode, sql_settings, app_settings)
     else:
-        render_home(mode, operator_id, app_settings)
+        render_home(mode)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,8 @@
+[client]
+# 首版面向业务人员：隐藏右上角的 Streamlit 开发工具、英文 Deploy 和设置菜单。
+# 用户只看到中文业务查询界面；运维人员仍可通过服务器命令管理应用。
+toolbarMode = "minimal"
+showErrorDetails = "none"
+
+[browser]
+gatherUsageStats = false

@@ -15,7 +15,7 @@ import zipfile
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 OUTPUT_DIR = PROJECT_ROOT.parent / "outputs"
 PROJECT_NAME = "project2SQLServer导入excel系统"
-EXCLUDED_PARTS = {".git", ".venv", ".pytest_cache", "__pycache__", "exports", "logs"}
+EXCLUDED_PARTS = {".agents", ".git", ".venv", ".pytest_cache", "__pycache__", "exports", "logs"}
 EXCLUDED_FILENAMES = {"audit.db", "secrets.toml"}
 
 

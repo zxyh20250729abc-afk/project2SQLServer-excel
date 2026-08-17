@@ -132,8 +132,10 @@ def build_filtered_sheet(
         elif output_filter.operator in {"gte", "lte"}:
             try:
                 decimal_value = Decimal(value)
-            except InvalidOperation as exc:
+            except (InvalidOperation, ValueError) as exc:
                 raise ValueError(f"“{output_filter.label}”请输入有效数字。") from exc
+            if not decimal_value.is_finite():
+                raise ValueError(f"“{output_filter.label}”请输入有效数字。")
             comparison = ">=" if output_filter.operator == "gte" else "<="
             clauses.append(f"TRY_CONVERT(decimal(38, 10), {column}) {comparison} ?")
             params.append(decimal_value)

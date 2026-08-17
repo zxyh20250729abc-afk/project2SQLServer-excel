@@ -108,3 +108,10 @@ def test_output_filter_rejects_unapproved_fields_and_invalid_numbers():
             approved_columns=("年龄",),
             available_columns=("年龄",),
         )
+    with pytest.raises(ValueError):
+        build_filtered_sheet(
+            EMPLOYEE_REPORT.sheets[0],
+            (OutputFilter("年龄", "年龄", "gte", "NaN"),),
+            approved_columns=("年龄",),
+            available_columns=("年龄",),
+        )

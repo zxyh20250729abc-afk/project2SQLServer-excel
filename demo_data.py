@@ -68,9 +68,12 @@ def filter_demo_employees(
             result = result.loc[column.astype("string") == value]
         elif output_filter.operator in {"gte", "lte"}:
             try:
-                threshold = float(Decimal(value))
-            except InvalidOperation as exc:
+                decimal_value = Decimal(value)
+            except (InvalidOperation, ValueError) as exc:
                 raise ValueError(f"“{output_filter.label}”请输入有效数字。") from exc
+            if not decimal_value.is_finite():
+                raise ValueError(f"“{output_filter.label}”请输入有效数字。")
+            threshold = float(decimal_value)
             numeric_values = pd.to_numeric(column, errors="coerce")
             result = result.loc[numeric_values >= threshold] if output_filter.operator == "gte" else result.loc[numeric_values <= threshold]
         else:

@@ -33,6 +33,12 @@ ADDITIONAL_FILTER_ROWS_KEY = "additional_filter_rows"
 ADDITIONAL_FILTER_COUNTER_KEY = "additional_filter_counter"
 
 _NUMERIC_FIELD_HINTS = ("金额", "税额", "税率", "薪资", "年龄", "管理费")
+_OPERATOR_HELP = {
+    "contains": "包含：只要字段内容中出现所填文字即可，例如填写“华东”可匹配“华东一区”。",
+    "equals": "等于：字段内容必须与所填内容完全一致，例如“财务部”不会匹配“财务共享中心”。",
+    "gte": "大于等于：适用于金额、税额等数字字段，结果包含所填数字本身。",
+    "lte": "小于等于：适用于金额、税额等数字字段，结果包含所填数字本身。",
+}
 
 
 def get_settings() -> tuple[str, dict[str, Any], dict[str, Any]]:
@@ -250,6 +256,18 @@ def _output_filter_label(output_filter: OutputFilter) -> str:
     return f"{output_filter.label}{operator_labels.get(output_filter.operator, output_filter.operator)}“{output_filter.value.strip()}”"
 
 
+def _filter_value_placeholder(field: Any) -> str:
+    if _field_supports_numeric_filter(field):
+        return "例如：10000 或 10000.50"
+    return "例如：财务部、华东、INV-2026"
+
+
+def _filter_value_help(field: Any) -> str:
+    if _field_supports_numeric_filter(field):
+        return "请只填写数字，可使用小数点；不要填写“≥”“≤”、逗号、货币符号或单位。比较方式请在左侧选择。"
+    return "请填写要查找的文字；不需要输入 %、_ 等通配符，系统会将它们按普通文字处理。"
+
+
 def render_additional_filters(
     dataset: DatasetPresentation,
     selected_fields: list[str],
@@ -257,6 +275,11 @@ def render_additional_filters(
     """仅按已选展示字段添加受控条件，页面从不接收 SQL 或底层字段名输入。"""
     st.markdown("#### 添加筛选条件（可选）")
     st.caption("可从上一步已选信息中添加多项条件；所有条件会同时生效，同一字段可分别设置上下限。")
+    with st.expander("匹配方式和筛选值怎么填写？", expanded=False):
+        st.markdown("- **包含**：查找字段中带有该文字的记录，例如“华东”可以查到“华东一区”。")
+        st.markdown("- **等于**：查找完全相同的记录，例如“财务部”不会匹配“财务共享中心”。")
+        st.markdown("- **大于等于 / 小于等于**：只用于金额、税额等数字字段；只填数字，例如 `10000` 或 `10000.50`。")
+        st.markdown("- 不要在筛选值中输入 `%`、`_`、`≥`、`≤`、货币符号或单位；比较方式请在页面中选择。")
 
     rows_key = additional_filter_rows_key(dataset.report_key)
     row_ids: list[int] = list(st.session_state.get(rows_key, []))
@@ -293,9 +316,21 @@ def render_additional_filters(
             with second:
                 if st.session_state.get(operator_key) not in operator_options:
                     st.session_state[operator_key] = operator_options[0]
-                operator = st.selectbox("匹配方式", options=operator_options, format_func=lambda item: operator_labels[item], key=operator_key)
+                operator = st.selectbox(
+                    "匹配方式",
+                    options=operator_options,
+                    format_func=lambda item: operator_labels[item],
+                    key=operator_key,
+                    help="选择系统如何比较该字段与您填写的筛选值。",
+                )
             with third:
-                value = st.text_input("筛选值", key=value_key, placeholder="例如：华东、2026、10000")
+                value = st.text_input(
+                    "筛选值",
+                    key=value_key,
+                    placeholder=_filter_value_placeholder(field),
+                    help=_filter_value_help(field),
+                    max_chars=200,
+                )
             with fourth:
                 st.write("")
                 st.button(
@@ -304,6 +339,8 @@ def render_additional_filters(
                     on_click=_remove_additional_filter_row,
                     args=(dataset.report_key, row_id),
                 )
+
+            st.caption(_OPERATOR_HELP[operator])
 
             if value.strip():
                 output_filters.append(OutputFilter(field.column_name, field.label, operator, value))

@@ -18,6 +18,7 @@ def test_builder_provides_additional_business_filter_rows():
 
     assert not app.exception
     assert [item.value for item in app.subheader][:2] == ["1. 选择要查看的信息", "2. 设置查询条件"]
+    assert "匹配方式和筛选值怎么填写？" in [item.label for item in app.expander]
     assert "＋ 添加一项条件" in [item.label for item in app.button]
 
     app.button(key="add_additional_filter_finance_expense_invoice").click().run(timeout=10)

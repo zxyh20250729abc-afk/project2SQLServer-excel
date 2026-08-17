@@ -141,6 +141,17 @@ def main() -> None:
     st.title("project2SQLServer导入excel系统")
     st.caption("预设业务统计 · SQL Server 只读访问 · Excel 导出")
 
+    with st.expander("数据安全与权限说明", expanded=True):
+        st.markdown(
+            """
+            - 本系统仅执行经过批准的 **SELECT 查询**，用于预览和导出 Excel。
+            - 页面不提供 SQL 输入框，也不支持新增、修改、删除、建表、删表、修改表结构或执行存储过程。
+            - 所有筛选条件均通过参数传递，不会拼接为可执行 SQL；系统会拒绝包含写入或管理操作的查询模板。
+            - 数据库必须使用 DBA 配置的专用只读账号。检测到 `sysadmin`、`db_owner` 或 `db_datawriter` 等高权限账号时，系统会阻止查询和导出。
+            - 最终的数据保护由 SQL Server 权限强制实施：应用账号仅应拥有已批准报表对象的 `SELECT` 权限。
+            """
+        )
+
     try:
         mode, sql_settings, app_settings = get_settings()
     except RuntimeError as exc:

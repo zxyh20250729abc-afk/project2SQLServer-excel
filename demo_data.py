@@ -6,7 +6,13 @@
 
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation
+import re
+from typing import Sequence
+
 import pandas as pd
+
+from reports import OutputFilter
 
 
 DEPARTMENTS = ("销售部", "市场部", "运营部", "客服部")
@@ -37,6 +43,8 @@ def filter_demo_employees(
     department: str | None,
     min_age: int | None,
     max_age: int | None,
+    output_filters: Sequence[OutputFilter] = (),
+    approved_columns: Sequence[str] | None = None,
 ) -> pd.DataFrame:
     """按和真实报表一致的条件筛选模拟数据。"""
     result = dataframe
@@ -46,4 +54,25 @@ def filter_demo_employees(
         result = result.loc[result["年龄"] >= min_age]
     if max_age is not None:
         result = result.loc[result["年龄"] <= max_age]
+    allowed_columns = set(approved_columns or tuple(dataframe.columns))
+    for output_filter in output_filters:
+        if output_filter.column_name not in allowed_columns or output_filter.column_name not in result.columns:
+            raise ValueError("筛选字段不在当前业务事项允许范围内，已停止查询。")
+        value = output_filter.value.strip()
+        if not value:
+            raise ValueError(f"请填写“{output_filter.label}”的筛选值。")
+        column = result[output_filter.column_name]
+        if output_filter.operator == "contains":
+            result = result.loc[column.astype("string").str.contains(re.escape(value), na=False, regex=True)]
+        elif output_filter.operator == "equals":
+            result = result.loc[column.astype("string") == value]
+        elif output_filter.operator in {"gte", "lte"}:
+            try:
+                threshold = float(Decimal(value))
+            except InvalidOperation as exc:
+                raise ValueError(f"“{output_filter.label}”请输入有效数字。") from exc
+            numeric_values = pd.to_numeric(column, errors="coerce")
+            result = result.loc[numeric_values >= threshold] if output_filter.operator == "gte" else result.loc[numeric_values <= threshold]
+        else:
+            raise ValueError("筛选方式无效，已停止查询。")
     return result.sort_values("人员编号", ascending=True).reset_index(drop=True)

@@ -140,6 +140,27 @@ def count_rows(connection: pyodbc.Connection, sheet: ReportSheet, params: list[A
         raise QueryExecutionError("统计查询失败，请稍后重试或联系管理员。") from exc
 
 
+def get_output_columns(connection: pyodbc.Connection, sheet: ReportSheet, params: list[Any]) -> tuple[str, ...]:
+    """读取固定查询的结果列名，不读取任何实际业务数据。
+
+    追加筛选前必须先确认字段确实是该工作表的输出列。这里使用 TOP (0)，
+    不会返回数据行，且查询模板仍经过只读校验。
+    """
+    if not sheet.base_sql:
+        raise QueryExecutionError("查询模板缺少结果字段定义，已停止查询。")
+    schema_sql = f"SELECT TOP (0) * FROM (\n{sheet.base_sql}\n) AS report_schema"
+    try:
+        from reports import validate_read_only_sql
+
+        validate_read_only_sql(schema_sql)
+        cursor = connection.cursor().execute(schema_sql, params)
+        return tuple(column[0] for column in (cursor.description or ()))
+    except ValueError as exc:
+        raise QueryExecutionError("查询模板校验失败，已停止查询。") from exc
+    except pyodbc.Error as exc:
+        raise QueryExecutionError("无法读取查询字段信息，请稍后重试或联系管理员。") from exc
+
+
 def fetch_preview(connection: pyodbc.Connection, sheet: ReportSheet, params: list[Any]) -> pd.DataFrame:
     validate_sheet_read_only(sheet)
     try:

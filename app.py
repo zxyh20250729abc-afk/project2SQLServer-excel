@@ -9,17 +9,30 @@ import streamlit as st
 
 from audit import record
 from catalog import DatasetPresentation, available_datasets, get_dataset, search_datasets
-from database import DatabaseConnectionError, QueryExecutionError, ReadonlyAccountError, count_rows, fetch_export, fetch_preview, readonly_connection
+from database import (
+    DatabaseConnectionError,
+    QueryExecutionError,
+    ReadonlyAccountError,
+    count_rows,
+    fetch_export,
+    fetch_preview,
+    get_output_columns,
+    readonly_connection,
+)
 from demo_data import filter_demo_employees, load_demo_employees
 from discovery import DiscoveredFilter, discover_demo_employee_filters, discover_employee_filters
 from exporter import create_filename, dataframes_to_excel
-from reports import ReportDefinition, build_params, get_report
+from reports import OutputFilter, ReportDefinition, build_filtered_sheet, build_params, get_report
 
 
 VIEW_KEY = "current_view"
 DATASET_KEY = "current_dataset_key"
 RESULT_KEY = "last_query_result"
 AUDIT_OPERATOR = "匿名访问"
+ADDITIONAL_FILTER_ROWS_KEY = "additional_filter_rows"
+ADDITIONAL_FILTER_COUNTER_KEY = "additional_filter_counter"
+
+_NUMERIC_FIELD_HINTS = ("金额", "税额", "税率", "薪资", "年龄", "管理费")
 
 
 def get_settings() -> tuple[str, dict[str, Any], dict[str, Any]]:
@@ -50,6 +63,34 @@ def filter_widget_key(report_key: str, filter_key: str) -> str:
 
 def field_widget_key(report_key: str) -> str:
     return f"fields_{report_key}"
+
+
+def additional_filter_rows_key(report_key: str) -> str:
+    return f"{ADDITIONAL_FILTER_ROWS_KEY}_{report_key}"
+
+
+def additional_filter_counter_key(report_key: str) -> str:
+    return f"{ADDITIONAL_FILTER_COUNTER_KEY}_{report_key}"
+
+
+def _add_additional_filter_row(report_key: str) -> None:
+    """添加稳定编号的一行条件，以便同一字段可配置上下限两次。"""
+    rows_key = additional_filter_rows_key(report_key)
+    counter_key = additional_filter_counter_key(report_key)
+    next_row_id = int(st.session_state.get(counter_key, 0)) + 1
+    st.session_state[counter_key] = next_row_id
+    st.session_state.setdefault(rows_key, []).append(next_row_id)
+    clear_last_result()
+
+
+def _remove_additional_filter_row(report_key: str, row_id: int) -> None:
+    rows_key = additional_filter_rows_key(report_key)
+    st.session_state[rows_key] = [item for item in st.session_state.get(rows_key, []) if item != row_id]
+    clear_last_result()
+
+
+def additional_filter_widget_key(report_key: str, row_id: int, part: str) -> str:
+    return f"additional_filter_{report_key}_{row_id}_{part}"
 
 
 def clear_last_result() -> None:
@@ -188,6 +229,84 @@ def render_filters(report: ReportDefinition, mode: str, sql_settings: dict[str, 
     return render_business_filters(report)
 
 
+def _field_supports_numeric_filter(field: Any) -> bool:
+    business_text = f"{field.label} {field.description}"
+    return any(hint in business_text for hint in _NUMERIC_FIELD_HINTS)
+
+
+def _output_filter_label(output_filter: OutputFilter) -> str:
+    operator_labels = {
+        "contains": "包含",
+        "equals": "等于",
+        "gte": "大于等于",
+        "lte": "小于等于",
+    }
+    return f"{output_filter.label}{operator_labels.get(output_filter.operator, output_filter.operator)}“{output_filter.value.strip()}”"
+
+
+def render_additional_filters(dataset: DatasetPresentation) -> tuple[list[OutputFilter], str | None]:
+    """按业务字段添加受控条件，页面从不接收 SQL 或底层字段名输入。"""
+    st.markdown("#### 添加筛选条件（可选）")
+    st.caption("可添加多项条件，所有条件会同时生效。字段可搜索；同一字段可分别设置上下限。")
+
+    rows_key = additional_filter_rows_key(dataset.report_key)
+    row_ids: list[int] = list(st.session_state.get(rows_key, []))
+    st.session_state.setdefault(rows_key, row_ids)
+    field_by_column = {field.column_name: field for field in dataset.fields}
+    options = tuple(field_by_column)
+    output_filters: list[OutputFilter] = []
+    errors: list[str] = []
+
+    for position, row_id in enumerate(row_ids, start=1):
+        with st.container(border=True):
+            st.caption(f"条件 {position}")
+            field_column_key = additional_filter_widget_key(dataset.report_key, row_id, "column")
+            operator_key = additional_filter_widget_key(dataset.report_key, row_id, "operator")
+            value_key = additional_filter_widget_key(dataset.report_key, row_id, "value")
+            _set_default(field_column_key, options[0])
+
+            field_column = st.selectbox(
+                "筛选字段（可搜索）",
+                options=options,
+                format_func=lambda column: f"{field_by_column[column].label}：{field_by_column[column].description}",
+                key=field_column_key,
+            )
+            field = field_by_column[field_column]
+            operator_options = ("contains", "equals", "gte", "lte") if _field_supports_numeric_filter(field) else ("contains", "equals")
+            operator_labels = {"contains": "包含", "equals": "等于", "gte": "大于等于", "lte": "小于等于"}
+
+            first, second, third, fourth = st.columns((3, 2, 4, 1))
+            with first:
+                st.caption(f"当前字段：{field.label}")
+            with second:
+                if st.session_state.get(operator_key) not in operator_options:
+                    st.session_state[operator_key] = operator_options[0]
+                operator = st.selectbox("匹配方式", options=operator_options, format_func=lambda item: operator_labels[item], key=operator_key)
+            with third:
+                value = st.text_input("筛选值", key=value_key, placeholder="例如：华东、2026、10000")
+            with fourth:
+                st.write("")
+                st.button(
+                    "移除",
+                    key=additional_filter_widget_key(dataset.report_key, row_id, "remove"),
+                    on_click=_remove_additional_filter_row,
+                    args=(dataset.report_key, row_id),
+                )
+
+            if value.strip():
+                output_filters.append(OutputFilter(field.column_name, field.label, operator, value))
+            else:
+                errors.append(f"请填写条件 {position} 的“{field.label}”筛选值，或移除该条件。")
+
+    st.button(
+        "＋ 添加一项条件",
+        key=f"add_additional_filter_{dataset.report_key}",
+        on_click=_add_additional_filter_row,
+        args=(dataset.report_key,),
+    )
+    return output_filters, errors[0] if errors else None
+
+
 def render_field_picker(dataset: DatasetPresentation) -> list[str]:
     """展示中文字段目录；用户选择展示和导出的内容，而非数据库列。"""
     options = tuple(field.column_name for field in dataset.fields)
@@ -207,7 +326,12 @@ def render_field_picker(dataset: DatasetPresentation) -> list[str]:
     return list(selected)
 
 
-def query_summary(dataset: DatasetPresentation, filters: dict[str, Any], selected_fields: list[str]) -> str:
+def query_summary(
+    dataset: DatasetPresentation,
+    filters: dict[str, Any],
+    selected_fields: list[str],
+    output_filters: list[OutputFilter],
+) -> str:
     filter_labels = {
         "year": "入账年份",
         "start_month": "起始月份",
@@ -223,6 +347,7 @@ def query_summary(dataset: DatasetPresentation, filters: dict[str, Any], selecte
         if value is not None and value != "":
             formatted = value.isoformat() if isinstance(value, date) else str(value)
             conditions.append(f"{filter_labels.get(key, key)}为 {formatted}")
+    conditions.extend(_output_filter_label(output_filter) for output_filter in output_filters)
     field_labels = [field.label for field in dataset.fields if field.column_name in selected_fields]
     return f"将查询“{dataset.title}”，{'；'.join(conditions) or '不限定筛选条件'}，展示 {len(field_labels)} 项业务信息。"
 
@@ -238,7 +363,9 @@ def execute_query(
     *,
     mode: str,
     report: ReportDefinition,
+    dataset: DatasetPresentation,
     filters: dict[str, Any],
+    output_filters: list[OutputFilter],
     selected_fields: list[str],
     sql_settings: dict[str, Any],
     app_settings: dict[str, Any],
@@ -246,26 +373,48 @@ def execute_query(
     """执行固定的只读查询，再仅保留用户选中的业务字段。"""
     raw_exports: dict[str, Any] = {}
     raw_previews: list[tuple[str, int, Any]] = []
+    approved_columns = tuple(field.column_name for field in dataset.fields)
+    applied_filter_sheets: dict[str, tuple[str, ...]] = {}
 
     if mode == "demo":
-        export_data = filter_demo_employees(load_demo_employees(), **filters)
+        export_data = filter_demo_employees(
+            load_demo_employees(),
+            **filters,
+            output_filters=output_filters,
+            approved_columns=approved_columns,
+        )
         raw_exports[report.sheets[0].name] = export_data
         raw_previews.append((report.sheets[0].name, len(export_data), export_data.head(100)))
+        applied_filter_sheets[report.sheets[0].name] = tuple(_output_filter_label(item) for item in output_filters)
     else:
         with readonly_connection(sql_settings) as connection:
             max_export_rows = int(app_settings.get("max_export_rows", 1_048_576))
             total_rows = 0
-            sheet_counts: list[tuple[Any, int]] = []
+            sheet_counts: list[tuple[Any, int, list[Any]]] = []
             for sheet in report.sheets:
-                params = build_params(sheet, filters)
-                row_count = count_rows(connection, sheet, params)
+                base_params = build_params(sheet, filters)
+                available_columns = get_output_columns(connection, sheet, base_params)
+                try:
+                    prepared_sheet, output_params, applied_labels = build_filtered_sheet(
+                        sheet,
+                        output_filters,
+                        approved_columns=approved_columns,
+                        available_columns=available_columns,
+                    )
+                except ValueError as exc:
+                    raise QueryExecutionError(str(exc)) from exc
+                params = [*base_params, *output_params]
+                row_count = count_rows(connection, prepared_sheet, params)
                 total_rows += row_count
                 if total_rows > max_export_rows:
                     raise QueryExecutionError(f"查询结果超过 {max_export_rows:,} 行，请缩小筛选条件。")
-                sheet_counts.append((sheet, row_count))
+                sheet_counts.append((prepared_sheet, row_count, params))
+                applied_filter_sheets[prepared_sheet.name] = applied_labels
 
-            for sheet, row_count in sheet_counts:
-                params = build_params(sheet, filters)
+            if output_filters and not any(applied_filter_sheets.values()):
+                raise QueryExecutionError("所选附加条件不适用于当前查询结果，已停止查询。")
+
+            for sheet, row_count, params in sheet_counts:
                 raw_previews.append((sheet.name, row_count, fetch_preview(connection, sheet, params)))
                 raw_exports[sheet.name] = fetch_export(connection, sheet, params)
 
@@ -290,6 +439,8 @@ def execute_query(
         "exports": visible_exports,
         "previews": visible_previews,
         "omitted_sheets": omitted_sheets,
+        "applied_filter_sheets": applied_filter_sheets,
+        "output_filter_labels": tuple(_output_filter_label(item) for item in output_filters),
     }
 
 
@@ -301,6 +452,16 @@ def render_query_result(result: dict[str, Any], dataset: DatasetPresentation) ->
     st.success(f"查询完成，共 {total_rows:,} 行。数据仅来自您有权限访问的范围。")
     if result["omitted_sheets"]:
         st.caption(f"未展示 {', '.join(result['omitted_sheets'])}，因为当前未选择其中适用的字段。")
+    applied_filter_sheets: dict[str, tuple[str, ...]] = result.get("applied_filter_sheets", {})
+    output_filter_labels = set(result.get("output_filter_labels", ()))
+    if output_filter_labels:
+        partial_notes = []
+        for sheet_name, labels in applied_filter_sheets.items():
+            missing = output_filter_labels - set(labels)
+            if missing:
+                partial_notes.append(f"{sheet_name} 未套用：{'、'.join(sorted(missing))}")
+        if partial_notes:
+            st.info("已添加的条件仅作用于包含该字段的工作表；" + "；".join(partial_notes))
 
     for sheet_name, row_count, preview in previews:
         st.markdown(f"##### {sheet_name}")
@@ -374,24 +535,34 @@ def render_builder(dataset: DatasetPresentation, mode: str, sql_settings: dict[s
     st.caption("系统会自动关联已批准的业务数据；您无需了解数据表或字段名称。")
     render_safety_status(mode)
 
-    with st.form(f"query_form_{dataset.report_key}"):
-        st.subheader("1. 选择查询条件")
-        filters, filter_error = render_filters(report, mode, sql_settings)
-        if filter_error:
-            # 不能再把筛选项读取失败隐藏到点击查询之后，避免页面出现空白条件区。
-            st.error(filter_error)
-        st.subheader("2. 选择要查看的信息")
-        selected_fields = render_field_picker(dataset)
-        st.caption(query_summary(dataset, filters or {}, selected_fields))
-        submitted = st.form_submit_button("查询预览", type="primary")
+    st.subheader("1. 选择查询条件")
+    filters, filter_error = render_filters(report, mode, sql_settings)
+    if filter_error:
+        # 不能再把筛选项读取失败隐藏到点击查询之后，避免页面出现空白条件区。
+        st.error(filter_error)
+    output_filters, output_filter_error = render_additional_filters(dataset)
+    st.subheader("2. 选择要查看的信息")
+    selected_fields = render_field_picker(dataset)
+    st.caption(query_summary(dataset, filters or {}, selected_fields, output_filters))
+    submitted = st.button("查询预览", type="primary")
 
     if submitted:
         audit_path = str(app_settings.get("audit_db_path", "audit.db"))
+        audit_filters = {
+            **(filters or {}),
+            "additional_conditions": [
+                {"field": item.label, "operator": item.operator, "value": item.value.strip()}
+                for item in output_filters
+            ],
+        }
         if filter_error:
             st.warning(filter_error)
             return
         if filters is None:
             st.error("无法生成查询条件，已停止查询。")
+            return
+        if output_filter_error:
+            st.warning(output_filter_error)
             return
         if not selected_fields:
             st.warning("请至少选择一项要查看的信息。")
@@ -402,23 +573,25 @@ def render_builder(dataset: DatasetPresentation, mode: str, sql_settings: dict[s
                 result = execute_query(
                     mode=mode,
                     report=report,
+                    dataset=dataset,
                     filters=filters,
+                    output_filters=output_filters,
                     selected_fields=selected_fields,
                     sql_settings=sql_settings,
                     app_settings=app_settings,
                 )
             total_rows = sum(row_count for _, row_count, _ in result["previews"])
-            record(audit_path, operator_id=AUDIT_OPERATOR, report_key=report.key, filters=filters, status="success", row_count=total_rows)
+            record(audit_path, operator_id=AUDIT_OPERATOR, report_key=report.key, filters=audit_filters, status="success", row_count=total_rows)
             st.session_state[RESULT_KEY] = result
         except ReadonlyAccountError as exc:
-            record(audit_path, operator_id=AUDIT_OPERATOR, report_key=report.key, filters=filters, status="failure", error_summary="Readonly account validation failed")
+            record(audit_path, operator_id=AUDIT_OPERATOR, report_key=report.key, filters=audit_filters, status="failure", error_summary="Readonly account validation failed")
             st.error(str(exc))
             st.warning("系统已阻止查询；请使用 DBA 配置的专用只读账号。")
         except (DatabaseConnectionError, QueryExecutionError, ValueError) as exc:
-            record(audit_path, operator_id=AUDIT_OPERATOR, report_key=report.key, filters=filters, status="failure", error_summary=str(exc))
+            record(audit_path, operator_id=AUDIT_OPERATOR, report_key=report.key, filters=audit_filters, status="failure", error_summary=str(exc))
             st.error(str(exc))
         except Exception:
-            record(audit_path, operator_id=AUDIT_OPERATOR, report_key=report.key, filters=filters, status="failure", error_summary="Unexpected application error")
+            record(audit_path, operator_id=AUDIT_OPERATOR, report_key=report.key, filters=audit_filters, status="failure", error_summary="Unexpected application error")
             st.error("系统处理失败，请联系管理员并提供操作时间。")
 
     result = st.session_state.get(RESULT_KEY)

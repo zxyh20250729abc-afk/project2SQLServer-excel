@@ -8,7 +8,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import re
-from typing import Any, Mapping
+from decimal import Decimal, InvalidOperation
+from typing import Any, Mapping, Sequence
 
 
 @dataclass(frozen=True)
@@ -33,6 +34,18 @@ class ReportSheet:
     preview_sql: str
     count_sql: str
     parameter_keys: tuple[str, ...] = ()
+    base_sql: str = ""
+    order_by: str | None = None
+
+
+@dataclass(frozen=True)
+class OutputFilter:
+    """用户以业务字段添加的受控筛选条件，不接收 SQL 或数据库列名输入。"""
+
+    column_name: str
+    label: str
+    operator: str
+    value: str
 
 
 @dataclass(frozen=True)
@@ -62,6 +75,86 @@ def _sheet(
         preview_sql=f"SELECT TOP (100) * FROM (\n{normalized_base}\n) AS report_preview" + order_clause,
         count_sql=f"SELECT COUNT_BIG(1) AS row_count FROM (\n{normalized_base}\n) AS report_count",
         parameter_keys=parameter_keys,
+        base_sql=normalized_base,
+        order_by=order_by,
+    )
+
+
+def _quote_output_column(column_name: str) -> str:
+    """为已批准的结果列生成 SQL Server 标识符，拒绝任何可疑名称。"""
+    if not column_name or "]" in column_name or "[" in column_name:
+        raise ValueError("筛选字段无效，已停止查询。")
+    return f"[{column_name}]"
+
+
+def _escape_like(value: str) -> str:
+    """使“包含”按普通文本匹配，而不是把用户输入当作 LIKE 通配符。"""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_").replace("[", "\\[")
+
+
+def build_filtered_sheet(
+    sheet: ReportSheet,
+    output_filters: Sequence[OutputFilter],
+    *,
+    approved_columns: Sequence[str],
+    available_columns: Sequence[str],
+) -> tuple[ReportSheet, list[Any], tuple[str, ...]]:
+    """为固定 SELECT 的结果集追加受控 WHERE 条件。
+
+    条件始终作用在原始固定查询的结果列上；字段来自业务目录白名单，值使用
+    ``?`` 参数传递。返回的新工作表仍是单条只读 SELECT。
+    """
+    approved = set(approved_columns)
+    available = set(available_columns)
+    clauses: list[str] = []
+    params: list[Any] = []
+    applied_labels: list[str] = []
+
+    for output_filter in output_filters:
+        if output_filter.column_name not in approved:
+            raise ValueError("筛选字段不在当前业务事项允许范围内，已停止查询。")
+        if output_filter.column_name not in available:
+            continue
+
+        column = _quote_output_column(output_filter.column_name)
+        value = output_filter.value.strip()
+        if not value:
+            raise ValueError(f"请填写“{output_filter.label}”的筛选值。")
+
+        if output_filter.operator == "contains":
+            clauses.append(f"CONVERT(nvarchar(max), {column}) LIKE ? ESCAPE '\\'")
+            params.append(f"%{_escape_like(value)}%")
+            applied_labels.append(f"{output_filter.label}包含“{value}”")
+        elif output_filter.operator == "equals":
+            clauses.append(f"CONVERT(nvarchar(max), {column}) = ?")
+            params.append(value)
+            applied_labels.append(f"{output_filter.label}等于“{value}”")
+        elif output_filter.operator in {"gte", "lte"}:
+            try:
+                decimal_value = Decimal(value)
+            except InvalidOperation as exc:
+                raise ValueError(f"“{output_filter.label}”请输入有效数字。") from exc
+            comparison = ">=" if output_filter.operator == "gte" else "<="
+            clauses.append(f"TRY_CONVERT(decimal(38, 10), {column}) {comparison} ?")
+            params.append(decimal_value)
+            operator_label = "大于等于" if output_filter.operator == "gte" else "小于等于"
+            applied_labels.append(f"{output_filter.label}{operator_label}{value}")
+        else:
+            raise ValueError("筛选方式无效，已停止查询。")
+
+    if not clauses:
+        return sheet, [], ()
+
+    filtered_base = "SELECT * FROM (\n" + sheet.base_sql + "\n) AS approved_result\nWHERE " + "\n  AND ".join(clauses)
+    return (
+        _sheet(
+            sheet.name,
+            filtered_base,
+            parameter_keys=sheet.parameter_keys,
+            order_by=sheet.order_by,
+        ),
+        params,
+        tuple(applied_labels),
     )
 
 

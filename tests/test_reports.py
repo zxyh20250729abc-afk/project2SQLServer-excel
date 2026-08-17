@@ -2,7 +2,17 @@ from datetime import date
 
 import pytest
 
-from reports import EMPLOYEE_REPORT, REPORTS, available_reports, build_params, get_report, validate_read_only_sql
+from reports import (
+    EMPLOYEE_REPORT,
+    REPORTS,
+    OutputFilter,
+    available_reports,
+    build_filtered_sheet,
+    build_params,
+    get_report,
+    validate_read_only_sql,
+    validate_sheet_read_only,
+)
 
 
 def test_build_params_keeps_user_values_as_parameters():
@@ -62,3 +72,39 @@ def test_non_readonly_sql_is_rejected(sql):
 
 def test_simple_select_sql_is_allowed():
     validate_read_only_sql("SELECT personid FROM dbo.employees WHERE age >= ?")
+
+
+def test_output_filters_are_parameterized_and_remain_read_only():
+    sheet, params, labels = build_filtered_sheet(
+        EMPLOYEE_REPORT.sheets[0],
+        (
+            OutputFilter("部门", "部门", "contains", "销售%部"),
+            OutputFilter("年龄", "年龄", "gte", "25"),
+        ),
+        approved_columns=("人员编号", "部门", "年龄"),
+        available_columns=("人员编号", "部门", "年龄"),
+    )
+
+    assert "WHERE CONVERT(nvarchar(max), [部门]) LIKE ?" in sheet.data_sql
+    assert "TRY_CONVERT(decimal(38, 10), [年龄]) >= ?" in sheet.data_sql
+    assert params[0] == "%销售\\%部%"
+    assert str(params[1]) == "25"
+    assert labels == ("部门包含“销售%部”", "年龄大于等于25")
+    validate_sheet_read_only(sheet)
+
+
+def test_output_filter_rejects_unapproved_fields_and_invalid_numbers():
+    with pytest.raises(ValueError):
+        build_filtered_sheet(
+            EMPLOYEE_REPORT.sheets[0],
+            (OutputFilter("不存在", "不存在", "equals", "x"),),
+            approved_columns=("部门",),
+            available_columns=("部门",),
+        )
+    with pytest.raises(ValueError):
+        build_filtered_sheet(
+            EMPLOYEE_REPORT.sheets[0],
+            (OutputFilter("年龄", "年龄", "gte", "不是数字"),),
+            approved_columns=("年龄",),
+            available_columns=("年龄",),
+        )

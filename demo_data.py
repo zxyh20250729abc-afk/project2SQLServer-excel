@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation
+from datetime import date
 import re
 from typing import Sequence
 
@@ -76,6 +77,13 @@ def filter_demo_employees(
             threshold = float(decimal_value)
             numeric_values = pd.to_numeric(column, errors="coerce")
             result = result.loc[numeric_values >= threshold] if output_filter.operator == "gte" else result.loc[numeric_values <= threshold]
+        elif output_filter.operator in {"date_gte", "date_lte"}:
+            try:
+                threshold_date = date.fromisoformat(value)
+            except ValueError as exc:
+                raise ValueError(f"“{output_filter.label}”请输入有效日期。") from exc
+            date_values = pd.to_datetime(column, errors="coerce").dt.date
+            result = result.loc[date_values >= threshold_date] if output_filter.operator == "date_gte" else result.loc[date_values <= threshold_date]
         else:
             raise ValueError("筛选方式无效，已停止查询。")
     return result.sort_values("人员编号", ascending=True).reset_index(drop=True)

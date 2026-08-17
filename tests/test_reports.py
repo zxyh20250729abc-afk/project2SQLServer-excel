@@ -93,6 +93,24 @@ def test_output_filters_are_parameterized_and_remain_read_only():
     validate_sheet_read_only(sheet)
 
 
+def test_date_range_filters_include_the_selected_end_day():
+    sheet, params, labels = build_filtered_sheet(
+        EMPLOYEE_REPORT.sheets[0],
+        (
+            OutputFilter("申请时间", "申请时间", "date_gte", "2026-01-01"),
+            OutputFilter("申请时间", "申请时间", "date_lte", "2026-01-31"),
+        ),
+        approved_columns=("申请时间",),
+        available_columns=("申请时间",),
+    )
+
+    assert "TRY_CONVERT(date, [申请时间]) >= ?" in sheet.data_sql
+    assert "TRY_CONVERT(date, [申请时间]) < DATEADD(day, 1, ?)" in sheet.data_sql
+    assert params == [date(2026, 1, 1), date(2026, 1, 31)]
+    assert labels == ("申请时间从2026-01-01起", "申请时间至2026-01-31止")
+    validate_sheet_read_only(sheet)
+
+
 def test_output_filter_rejects_unapproved_fields_and_invalid_numbers():
     with pytest.raises(ValueError):
         build_filtered_sheet(
@@ -107,6 +125,13 @@ def test_output_filter_rejects_unapproved_fields_and_invalid_numbers():
             (OutputFilter("年龄", "年龄", "gte", "不是数字"),),
             approved_columns=("年龄",),
             available_columns=("年龄",),
+        )
+    with pytest.raises(ValueError):
+        build_filtered_sheet(
+            EMPLOYEE_REPORT.sheets[0],
+            (OutputFilter("申请时间", "申请时间", "date_gte", "2026-99-99"),),
+            approved_columns=("申请时间",),
+            available_columns=("申请时间",),
         )
     with pytest.raises(ValueError):
         build_filtered_sheet(

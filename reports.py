@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 import re
 from decimal import Decimal, InvalidOperation
 from typing import Any, Mapping, Sequence
@@ -141,6 +142,19 @@ def build_filtered_sheet(
             params.append(decimal_value)
             operator_label = "大于等于" if output_filter.operator == "gte" else "小于等于"
             applied_labels.append(f"{output_filter.label}{operator_label}{value}")
+        elif output_filter.operator in {"date_gte", "date_lte"}:
+            try:
+                date_value = date.fromisoformat(value)
+            except ValueError as exc:
+                raise ValueError(f"“{output_filter.label}”请输入有效日期。") from exc
+            if output_filter.operator == "date_gte":
+                clauses.append(f"TRY_CONVERT(date, {column}) >= ?")
+                applied_labels.append(f"{output_filter.label}从{value}起")
+            else:
+                # 结束日期按当天包含；使用小于次日可兼容 datetime 类型结果列。
+                clauses.append(f"TRY_CONVERT(date, {column}) < DATEADD(day, 1, ?)")
+                applied_labels.append(f"{output_filter.label}至{value}止")
+            params.append(date_value)
         else:
             raise ValueError("筛选方式无效，已停止查询。")
 

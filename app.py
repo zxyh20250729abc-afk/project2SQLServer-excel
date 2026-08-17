@@ -33,11 +33,14 @@ ADDITIONAL_FILTER_ROWS_KEY = "additional_filter_rows"
 ADDITIONAL_FILTER_COUNTER_KEY = "additional_filter_counter"
 
 _NUMERIC_FIELD_HINTS = ("金额", "税额", "税率", "薪资", "年龄", "管理费")
+_DATE_FIELD_HINTS = ("日期", "时间")
 _OPERATOR_HELP = {
     "contains": "包含：只要字段内容中出现所填文字即可，例如填写“华东”可匹配“华东一区”。",
     "equals": "等于：字段内容必须与所填内容完全一致，例如“财务部”不会匹配“财务共享中心”。",
     "gte": "大于等于：适用于金额、税额等数字字段，结果包含所填数字本身。",
     "lte": "小于等于：适用于金额、税额等数字字段，结果包含所填数字本身。",
+    "date_gte": "开始日期：查询该日期当天及之后的数据。",
+    "date_lte": "结束日期：查询该日期当天及之前的数据。",
 }
 
 
@@ -246,12 +249,19 @@ def _field_supports_numeric_filter(field: Any) -> bool:
     return any(hint in business_text for hint in _NUMERIC_FIELD_HINTS)
 
 
+def _field_supports_date_filter(field: Any) -> bool:
+    business_text = f"{field.label} {field.description}"
+    return any(hint in business_text for hint in _DATE_FIELD_HINTS)
+
+
 def _output_filter_label(output_filter: OutputFilter) -> str:
     operator_labels = {
         "contains": "包含",
         "equals": "等于",
         "gte": "大于等于",
         "lte": "小于等于",
+        "date_gte": "从",
+        "date_lte": "至",
     }
     return f"{output_filter.label}{operator_labels.get(output_filter.operator, output_filter.operator)}“{output_filter.value.strip()}”"
 
@@ -279,6 +289,7 @@ def render_additional_filters(
         st.markdown("- **包含**：查找字段中带有该文字的记录，例如“华东”可以查到“华东一区”。")
         st.markdown("- **等于**：查找完全相同的记录，例如“财务部”不会匹配“财务共享中心”。")
         st.markdown("- **大于等于 / 小于等于**：只用于金额、税额等数字字段；只填数字，例如 `10000` 或 `10000.50`。")
+        st.markdown("- **日期字段**：会显示开始日期和结束日期；只填一端也可以，结束日期当天会被包含。")
         st.markdown("- 不要在筛选值中输入 `%`、`_`、`≥`、`≤`、货币符号或单位；比较方式请在页面中选择。")
 
     rows_key = additional_filter_rows_key(dataset.report_key)
@@ -307,45 +318,85 @@ def render_additional_filters(
                 key=field_column_key,
             )
             field = field_by_column[field_column]
-            operator_options = ("contains", "equals", "gte", "lte") if _field_supports_numeric_filter(field) else ("contains", "equals")
             operator_labels = {"contains": "包含", "equals": "等于", "gte": "大于等于", "lte": "小于等于"}
 
-            first, second, third, fourth = st.columns((3, 2, 4, 1))
-            with first:
-                st.caption(f"当前字段：{field.label}")
-            with second:
-                if st.session_state.get(operator_key) not in operator_options:
-                    st.session_state[operator_key] = operator_options[0]
-                operator = st.selectbox(
-                    "匹配方式",
-                    options=operator_options,
-                    format_func=lambda item: operator_labels[item],
-                    key=operator_key,
-                    help="选择系统如何比较该字段与您填写的筛选值。",
-                )
-            with third:
-                value = st.text_input(
-                    "筛选值",
-                    key=value_key,
-                    placeholder=_filter_value_placeholder(field),
-                    help=_filter_value_help(field),
-                    max_chars=200,
-                )
-            with fourth:
-                st.write("")
-                st.button(
-                    "移除",
-                    key=additional_filter_widget_key(dataset.report_key, row_id, "remove"),
-                    on_click=_remove_additional_filter_row,
-                    args=(dataset.report_key, row_id),
-                )
+            if _field_supports_date_filter(field):
+                first, second, third, fourth = st.columns((3, 3, 3, 1))
+                with first:
+                    st.caption(f"当前字段：{field.label}")
+                with second:
+                    start_date = st.date_input(
+                        "开始日期（可选）",
+                        value=None,
+                        key=additional_filter_widget_key(dataset.report_key, row_id, "start_date"),
+                        format="YYYY-MM-DD",
+                        help="不填写则不限制开始日期。",
+                    )
+                with third:
+                    end_date = st.date_input(
+                        "结束日期（含，可选）",
+                        value=None,
+                        key=additional_filter_widget_key(dataset.report_key, row_id, "end_date"),
+                        format="YYYY-MM-DD",
+                        help="不填写则不限制结束日期；填写后，该日期当天也会包含在结果中。",
+                    )
+                with fourth:
+                    st.write("")
+                    st.button(
+                        "移除",
+                        key=additional_filter_widget_key(dataset.report_key, row_id, "remove"),
+                        on_click=_remove_additional_filter_row,
+                        args=(dataset.report_key, row_id),
+                    )
 
-            st.caption(_OPERATOR_HELP[operator])
-
-            if value.strip():
-                output_filters.append(OutputFilter(field.column_name, field.label, operator, value))
+                st.caption("时间范围：可只填写开始日期或结束日期；同时填写时，开始日期不能晚于结束日期。")
+                if start_date is not None and end_date is not None and start_date > end_date:
+                    errors.append(f"条件 {position} 的开始日期不能晚于结束日期。")
+                elif start_date is not None or end_date is not None:
+                    if start_date is not None:
+                        output_filters.append(OutputFilter(field.column_name, field.label, "date_gte", start_date.isoformat()))
+                    if end_date is not None:
+                        output_filters.append(OutputFilter(field.column_name, field.label, "date_lte", end_date.isoformat()))
+                else:
+                    errors.append(f"请填写条件 {position} 的开始日期或结束日期，或移除该条件。")
             else:
-                errors.append(f"请填写条件 {position} 的“{field.label}”筛选值，或移除该条件。")
+                operator_options = ("contains", "equals", "gte", "lte") if _field_supports_numeric_filter(field) else ("contains", "equals")
+                first, second, third, fourth = st.columns((3, 2, 4, 1))
+                with first:
+                    st.caption(f"当前字段：{field.label}")
+                with second:
+                    if st.session_state.get(operator_key) not in operator_options:
+                        st.session_state[operator_key] = operator_options[0]
+                    operator = st.selectbox(
+                        "匹配方式",
+                        options=operator_options,
+                        format_func=lambda item: operator_labels[item],
+                        key=operator_key,
+                        help="选择系统如何比较该字段与您填写的筛选值。",
+                    )
+                with third:
+                    value = st.text_input(
+                        "筛选值",
+                        key=value_key,
+                        placeholder=_filter_value_placeholder(field),
+                        help=_filter_value_help(field),
+                        max_chars=200,
+                    )
+                with fourth:
+                    st.write("")
+                    st.button(
+                        "移除",
+                        key=additional_filter_widget_key(dataset.report_key, row_id, "remove"),
+                        on_click=_remove_additional_filter_row,
+                        args=(dataset.report_key, row_id),
+                    )
+
+                st.caption(_OPERATOR_HELP[operator])
+
+                if value.strip():
+                    output_filters.append(OutputFilter(field.column_name, field.label, operator, value))
+                else:
+                    errors.append(f"请填写条件 {position} 的“{field.label}”筛选值，或移除该条件。")
 
     st.button(
         "＋ 添加一项条件",

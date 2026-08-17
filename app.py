@@ -110,15 +110,14 @@ def render_business_filters(report: ReportDefinition) -> tuple[dict[str, Any], s
                     key=key,
                 )
             elif definition.kind == "integer":
-                values[definition.key] = int(
-                    st.number_input(
-                        definition.label,
-                        min_value=int(definition.minimum or 0),
-                        max_value=int(definition.maximum or 9999),
-                        value=date.today().year,
-                        step=1,
-                        key=key,
-                    )
+                options = tuple(range(int(definition.minimum or 0), int(definition.maximum or 9999) + 1))
+                current_year = date.today().year
+                default_index = options.index(current_year) if current_year in options else 0
+                values[definition.key] = st.selectbox(
+                    definition.label,
+                    options=options,
+                    index=default_index,
+                    key=key,
                 )
             else:
                 return values, "报表筛选条件配置错误，已停止查询。"

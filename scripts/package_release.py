@@ -31,7 +31,7 @@ def should_include(path: Path) -> bool:
 def main() -> None:
     OUTPUT_DIR.mkdir(exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    archive_path = OUTPUT_DIR / f"{PROJECT_NAME}_MVP_{stamp}.zip"
+    archive_path = OUTPUT_DIR / f"{PROJECT_NAME}_V2_{stamp}.zip"
     manifest: list[str] = []
 
     with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:

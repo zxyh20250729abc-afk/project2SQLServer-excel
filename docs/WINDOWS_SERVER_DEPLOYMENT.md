@@ -1,6 +1,6 @@
-# Windows 服务器部署（MVP）
+# Windows 服务器部署（V2）
 
-目标：应用与 SQL Server 部署在同一台 Windows 服务器，应用只通过 `127.0.0.1:1433` 访问数据库；终端用户只访问应用网页，不接触数据库账号。
+目标：应用与 SQL Server 部署在同一台 Windows 服务器，应用只通过 `127.0.0.1:1433` 访问数据库；终端用户只访问“数据查询助手”网页，不接触数据库账号、表名或 SQL。
 
 ## 1. 服务器前置条件
 
@@ -40,7 +40,7 @@ max_export_rows = 1048576
 audit_db_path = "audit.db"
 ```
 
-`db_test0` 和 `dbo.employees` 仅适用于连通性测试。运行真实业务报表时，应将 `database` 改为业务数据库，并由 DBA 授予每份预设报表所需对象的 SELECT 权限。`encrypt = false` 仅适用于此 MVP 的本机测试；正式上线应部署受信任证书后设置 `encrypt = true` 与 `trust_server_certificate = false`。
+`db_test0` 和 `dbo.employees` 仅适用于连通性测试。运行真实业务查询时，应将 `database` 改为业务数据库，并由 DBA 授予每项已批准查询所需对象的 SELECT 权限。`encrypt = false` 仅适用于此 MVP 的本机测试；正式上线应部署受信任证书后设置 `encrypt = true` 与 `trust_server_certificate = false`。
 
 ## 3. 只读连通性验证
 
@@ -48,7 +48,7 @@ audit_db_path = "audit.db"
 python scripts\verify_sqlserver_connection.py --report employee_list
 ```
 
-员工测试通过后，部署真实业务库前还应核验实际报表，例如：`python scripts\verify_sqlserver_connection.py --report contract_stamp_tax_detail`。所有核验只执行 `SELECT`，不会修改 SQL Server 数据。
+员工测试通过后，部署真实业务库前还应核验实际查询，例如：`python scripts\verify_sqlserver_connection.py --report contract_stamp_tax_detail`。所有核验只执行 `SELECT`，不会修改 SQL Server 数据。
 
 ## 4. 启动应用
 
@@ -63,4 +63,6 @@ streamlit run app.py --server.address 0.0.0.0 --server.port 8501
 - 不向用户分发 `.streamlit\secrets.toml`；其中含数据库密码。
 - 不向用户开放 SQL Server 的 `1433`；只有应用服务器本机使用该端口。
 - 用户只访问网页 `http://服务器地址:8501`。
-- MVP 运行窗口关闭后应用会停止；正式推广时应配置 Windows 服务或受控的进程守护。
+- 用户通过业务事项、中文条件和中文字段完成查询；多表关联由后台固定查询处理，不向用户开放任意选表、任意关联或 SQL 输入。
+- “我的常用查询”仅保存在服务器本地 `audit.db`；它不包含数据库密码、导出结果或业务数据。请将该文件按审计资料保护，不随安装包分发。
+- V2 运行窗口关闭后应用会停止；正式推广时应配置 Windows 服务或受控的进程守护。

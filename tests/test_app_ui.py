@@ -1,4 +1,7 @@
+import pandas as pd
 from streamlit.testing.v1 import AppTest
+
+from app import localize_missing_values
 
 
 def test_first_release_has_no_personal_identity_or_saved_query_controls():
@@ -24,9 +27,19 @@ def test_builder_provides_additional_business_filter_rows():
     assert "＋ 增加筛选条件" in [item.label for item in app.button]
     assert "全选" in [item.label for item in app.button]
     assert "清空" in [item.label for item in app.button]
-    assert "开始日期（含）" in [item.label for item in app.date_input]
-    assert "结束日期（含）" in [item.label for item in app.date_input]
+    assert not app.date_input
+    assert "开始日期（含）－年份" in [item.label for item in app.selectbox]
+    assert "结束日期（含）－年份" in [item.label for item in app.selectbox]
     assert "查询预览" not in [item.label for item in app.button]
 
     app.button(key="add_additional_filter_finance_expense_invoice").click().run(timeout=10)
     assert "筛选字段（可搜索）" in [item.label for item in app.selectbox]
+
+
+def test_missing_preview_values_are_displayed_in_chinese_without_mutating_source():
+    source = pd.DataFrame({"备注": [None, "已归档"], "金额": [None, 100]})
+
+    displayed = localize_missing_values(source)
+
+    assert displayed.iloc[0].tolist() == ["无", "无"]
+    assert source.iloc[0].isna().all()

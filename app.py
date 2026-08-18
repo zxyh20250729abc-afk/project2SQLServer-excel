@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from calendar import monthrange
 from datetime import date, timedelta
 from typing import Any
 
@@ -44,6 +45,7 @@ APP_VERSION = "3.0"
 
 _NUMERIC_FIELD_HINTS = ("金额", "税额", "税率", "薪资", "年龄", "管理费")
 _DATE_FIELD_HINTS = ("日期", "时间")
+_DATE_YEAR_OPTIONS = tuple(range(1900, 2101))
 _OPERATOR_HELP = {
     "contains": "包含：只要字段内容中出现所填文字即可，例如填写“华东”可匹配“华东一区”。",
     "equals": "等于：字段内容必须与所填内容完全一致，例如“财务部”不会匹配“财务共享中心”。",
@@ -311,6 +313,66 @@ def friendly_filter_label(filter_key: str, fallback: str) -> str:
     return labels.get(filter_key, fallback)
 
 
+def render_chinese_date_input(
+    label: str,
+    *,
+    key: str,
+    value: date | None,
+    optional: bool = False,
+    help_text: str | None = None,
+) -> date | None:
+    """使用中文年、月、日选择器，避免原生日历按浏览器显示英文。"""
+    default_value = value or date.today()
+    year_key = f"{key}_year"
+    month_key = f"{key}_month"
+    day_key = f"{key}_day"
+    year_options: tuple[int | None, ...] = ((None,) + _DATE_YEAR_OPTIONS) if optional else _DATE_YEAR_OPTIONS
+    _set_default(year_key, None if optional and value is None else default_value.year)
+    _set_default(month_key, default_value.month)
+
+    st.markdown(f"**{label}**")
+    year_column, month_column, day_column = st.columns(3, gap="small")
+    with year_column:
+        selected_year = st.selectbox(
+            f"{label}－年份",
+            options=year_options,
+            key=year_key,
+            format_func=lambda item: "不限" if item is None else f"{item}年",
+            label_visibility="collapsed",
+            help=help_text,
+        )
+    active_year = int(selected_year) if selected_year is not None else default_value.year
+    with month_column:
+        selected_month = st.selectbox(
+            f"{label}－月份",
+            options=tuple(range(1, 13)),
+            key=month_key,
+            format_func=lambda item: f"{item}月",
+            label_visibility="collapsed",
+            disabled=selected_year is None,
+        )
+
+    maximum_day = monthrange(active_year, int(selected_month))[1]
+    previous_day = int(st.session_state.get(day_key, default_value.day))
+    if previous_day > maximum_day:
+        st.session_state[day_key] = maximum_day
+    else:
+        _set_default(day_key, previous_day)
+    with day_column:
+        selected_day = st.selectbox(
+            f"{label}－日期",
+            options=tuple(range(1, maximum_day + 1)),
+            key=day_key,
+            format_func=lambda item: f"{item}日",
+            label_visibility="collapsed",
+            disabled=selected_year is None,
+        )
+
+    if selected_year is None:
+        return None
+    return date(int(selected_year), int(selected_month), int(selected_day))
+
+
 def render_business_filters(report: ReportDefinition) -> tuple[dict[str, Any], str | None]:
     """按业务语言展示已批准的年度、月份或日期条件。"""
     values: dict[str, Any] = {}
@@ -323,8 +385,11 @@ def render_business_filters(report: ReportDefinition) -> tuple[dict[str, Any], s
         label = friendly_filter_label(definition.key, definition.label)
         with columns[index % len(columns)]:
             if definition.kind == "date":
-                _set_default(widget_key, default_start if definition.key == "start_date" else default_end)
-                values[definition.key] = st.date_input(label, key=widget_key)
+                values[definition.key] = render_chinese_date_input(
+                    label,
+                    key=widget_key,
+                    value=default_start if definition.key == "start_date" else default_end,
+                )
             elif definition.kind == "month":
                 options = tuple(range(int(definition.minimum or 1), int(definition.maximum or 12) + 1))
                 _set_default(widget_key, date.today().month)
@@ -427,20 +492,20 @@ def render_additional_filters(
             if _field_supports_date_filter(field):
                 first, second, third = st.columns((4, 4, 1))
                 with first:
-                    start_date = st.date_input(
+                    start_date = render_chinese_date_input(
                         "开始日期（可选）",
+                        optional=True,
                         value=None,
                         key=additional_filter_widget_key(dataset.report_key, row_id, "start_date"),
-                        format="YYYY-MM-DD",
-                        help="不填写则不限制开始日期。",
+                        help_text="年份保持“不限”时，不限制开始日期。",
                     )
                 with second:
-                    end_date = st.date_input(
+                    end_date = render_chinese_date_input(
                         "结束日期（含，可选）",
+                        optional=True,
                         value=None,
                         key=additional_filter_widget_key(dataset.report_key, row_id, "end_date"),
-                        format="YYYY-MM-DD",
-                        help="不填写则不限制结束日期；填写后，该日期当天也会包含在结果中。",
+                        help_text="年份保持“不限”时，不限制结束日期；选择后会包含当天。",
                     )
                 with third:
                     st.write("")
@@ -735,6 +800,11 @@ def audit_filter_payload(filters: dict[str, Any], output_filters: list[OutputFil
     }
 
 
+def localize_missing_values(dataframe: Any) -> Any:
+    """仅为页面预览将真实空值显示为“无”，不修改查询结果。"""
+    return dataframe.astype(object).where(dataframe.notna(), "无")
+
+
 def render_preview_result(result: dict[str, Any], dataset: DatasetPresentation) -> bool:
     """右侧工作区：每页最多 50 行实时预览，返回是否请求全量 Excel。"""
     previews: list[tuple[str, int, Any]] = result["previews"]
@@ -783,7 +853,7 @@ def render_preview_result(result: dict[str, Any], dataset: DatasetPresentation) 
         sheet_name, row_count, preview = previews[0]
         if row_count:
             st.caption(f"{sheet_name}｜本页 {len(preview):,} 行")
-            st.dataframe(preview, width="stretch", hide_index=True, height=480)
+            st.dataframe(localize_missing_values(preview), width="stretch", hide_index=True, height=480)
         else:
             st.info("当前条件没有数据。")
     else:
@@ -792,7 +862,7 @@ def render_preview_result(result: dict[str, Any], dataset: DatasetPresentation) 
             with tab:
                 if row_count:
                     st.caption(f"本页 {len(preview):,} 行")
-                    st.dataframe(preview, width="stretch", hide_index=True, height=440)
+                    st.dataframe(localize_missing_values(preview), width="stretch", hide_index=True, height=440)
                 else:
                     st.info("当前条件没有数据。")
 

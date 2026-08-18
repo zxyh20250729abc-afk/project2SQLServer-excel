@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 import re
 from decimal import Decimal, InvalidOperation
 from typing import Any, Mapping, Sequence
@@ -32,7 +32,7 @@ class ReportSheet:
 
     name: str
     data_sql: str
-    preview_sql: str
+    page_sql: str
     count_sql: str
     parameter_keys: tuple[str, ...] = ()
     base_sql: str = ""
@@ -67,13 +67,18 @@ def _sheet(
     parameter_keys: tuple[str, ...] = (),
     order_by: str | None = None,
 ) -> ReportSheet:
-    """以同一固定基础查询生成导出、预览和计数 SQL。"""
+    """以同一固定基础查询生成导出、分页和计数 SQL。"""
     normalized_base = base_sql.strip()
-    order_clause = f"\nORDER BY {order_by}" if order_by else ""
+    effective_order = order_by or "(SELECT NULL)"
+    order_clause = f"\nORDER BY {effective_order}"
     return ReportSheet(
         name=name,
         data_sql=normalized_base + order_clause,
-        preview_sql=f"SELECT TOP (100) * FROM (\n{normalized_base}\n) AS report_preview" + order_clause,
+        page_sql=(
+            f"SELECT * FROM (\n{normalized_base}\n) AS report_page"
+            + order_clause
+            + "\nOFFSET ? ROWS FETCH NEXT ? ROWS ONLY"
+        ),
         count_sql=f"SELECT COUNT_BIG(1) AS row_count FROM (\n{normalized_base}\n) AS report_count",
         parameter_keys=parameter_keys,
         base_sql=normalized_base,
@@ -212,20 +217,9 @@ EMPLOYEE_REPORT = ReportDefinition(
 )
 
 
-_YEAR_MONTH_FILTERS = (
-    FilterDefinition(key="year", column_name="", label="用友记账年份", kind="integer", required=True, minimum=2000, maximum=2100),
-    FilterDefinition(key="start_month", column_name="", label="起始月份", kind="month", required=True, minimum=1, maximum=12),
-    FilterDefinition(key="end_month", column_name="", label="结束月份", kind="month", required=True, minimum=1, maximum=12),
-)
-
-_INVOICE_FILTERS = (
-    FilterDefinition(key="year", column_name="", label="用友记账年份", kind="integer", required=True, minimum=2000, maximum=2100),
-    FilterDefinition(key="start_month", column_name="", label="起始月份", kind="month", required=True, minimum=1, maximum=12),
-)
-
 _DATE_RANGE_FILTERS = (
     FilterDefinition(key="start_date", column_name="", label="开始日期（含）", kind="date", required=True),
-    FilterDefinition(key="end_date", column_name="", label="结束日期（不含）", kind="date", required=True),
+    FilterDefinition(key="end_date", column_name="", label="结束日期（含）", kind="date", required=True),
 )
 
 
@@ -252,17 +246,17 @@ SELECT
     fd_nc_billno AS [用友记账号]
 FROM mod_fi_claim AS Y1
 WHERE doc_status = 30
-  AND fd_nc_year = ?
-  AND CONVERT(int, fd_nc_month) BETWEEN ? AND ?
+  AND DATEFROMPARTS(TRY_CONVERT(int, fd_nc_year), TRY_CONVERT(int, fd_nc_month), 1) >= ?
+  AND DATEFROMPARTS(TRY_CONVERT(int, fd_nc_year), TRY_CONVERT(int, fd_nc_month), 1) < ?
 """
 
 CLAIM_DETAIL_REPORT = ReportDefinition(
     key="finance_claim_detail",
     name="财务－认款明细统计",
-    description="按用友记账年份和月份区间导出认款单明细。",
+    description="按开始日期和结束日期导出认款单明细。",
     source_note="数据源：mod_fi_claim、mod_contract_main 等已批准业务表。",
-    filters=_YEAR_MONTH_FILTERS,
-    sheets=(_sheet("认款明细", _CLAIM_DETAIL_BASE, parameter_keys=("year", "start_month", "end_month"), order_by="[申请部门], [申请时间]"),),
+    filters=_DATE_RANGE_FILTERS,
+    sheets=(_sheet("认款明细", _CLAIM_DETAIL_BASE, parameter_keys=("start_date", "end_date"), order_by="[申请部门], [申请时间]"),),
 )
 
 _CLAIM_AMOUNT_BASE = """
@@ -279,8 +273,8 @@ FROM (
         fd_nc_year + '-' + fd_nc_month AS [用友记账年月]
     FROM mod_fi_claim AS Y1
     WHERE doc_status = 30
-      AND fd_nc_year = ?
-      AND CONVERT(int, fd_nc_month) BETWEEN ? AND ?
+      AND DATEFROMPARTS(TRY_CONVERT(int, fd_nc_year), TRY_CONVERT(int, fd_nc_month), 1) >= ?
+      AND DATEFROMPARTS(TRY_CONVERT(int, fd_nc_year), TRY_CONVERT(int, fd_nc_month), 1) < ?
 ) AS T
 GROUP BY T.[申请部门], T.[用友记账年月]
 """
@@ -290,8 +284,8 @@ CLAIM_AMOUNT_REPORT = ReportDefinition(
     name="财务－认款金额统计",
     description="按部门和用友记账月份汇总认款金额、管理费。",
     source_note="数据源：mod_fi_claim、sys_org_element。",
-    filters=_YEAR_MONTH_FILTERS,
-    sheets=(_sheet("认款金额汇总", _CLAIM_AMOUNT_BASE, parameter_keys=("year", "start_month", "end_month"), order_by="[申请部门], [用友记账年月]"),),
+    filters=_DATE_RANGE_FILTERS,
+    sheets=(_sheet("认款金额汇总", _CLAIM_AMOUNT_BASE, parameter_keys=("start_date", "end_date"), order_by="[申请部门], [用友记账年月]"),),
 )
 
 _EXPENSE_INVOICE_BASE = """
@@ -316,8 +310,8 @@ SELECT
     fd_seller_name AS [销售方]
 FROM mod_fi_expense AS T1
 INNER JOIN mod_fi_invoice_detail AS T2 ON T1.fd_id = T2.doc_main_id
-WHERE fd_nc_year = ?
-  AND CONVERT(int, fd_nc_month) >= ?
+WHERE DATEFROMPARTS(TRY_CONVERT(int, fd_nc_year), TRY_CONVERT(int, fd_nc_month), 1) >= ?
+  AND DATEFROMPARTS(TRY_CONVERT(int, fd_nc_year), TRY_CONVERT(int, fd_nc_month), 1) < ?
   AND fd_nc_billno IS NOT NULL
   AND doc_status > 10
 """
@@ -325,10 +319,10 @@ WHERE fd_nc_year = ?
 EXPENSE_INVOICE_REPORT = ReportDefinition(
     key="finance_expense_invoice",
     name="财务－报销发票统计",
-    description="按用友记账年份和起始月份导出已入账报销发票。",
+    description="按开始日期和结束日期导出已入账报销发票。",
     source_note="数据源：mod_fi_expense、mod_fi_invoice_detail。",
-    filters=_INVOICE_FILTERS,
-    sheets=(_sheet("报销发票", _EXPENSE_INVOICE_BASE, parameter_keys=("year", "start_month"), order_by="[部门], [报销单号]"),),
+    filters=_DATE_RANGE_FILTERS,
+    sheets=(_sheet("报销发票", _EXPENSE_INVOICE_BASE, parameter_keys=("start_date", "end_date"), order_by="[部门], [报销单号]"),),
 )
 
 _CONTRACT_AMOUNT_SUMMARY_BASE = """
@@ -569,9 +563,9 @@ STAMP_TAX_DETAIL_REPORT = ReportDefinition(
     sheets=(
         _sheet("主合同", _STAMP_MAIN_BASE, parameter_keys=("start_date", "end_date"), order_by="[合同编号]"),
         _sheet("采购合同", _STAMP_PURCHASE_BASE, parameter_keys=("start_date", "end_date"), order_by="[合同编号]"),
-        _sheet("收入合同结算", _STAMP_INCOME_SETTLEMENT_BASE, parameter_keys=("start_date", "end_date")),
-        _sheet("支出合同结算", _STAMP_EXPENSE_SETTLEMENT_BASE, parameter_keys=("start_date", "end_date")),
-        _sheet("报销结算", _STAMP_REIMBURSEMENT_BASE, parameter_keys=("start_date", "end_date")),
+        _sheet("收入合同结算", _STAMP_INCOME_SETTLEMENT_BASE, parameter_keys=("start_date", "end_date"), order_by="[申请部门], [合同编号], [结算日期]"),
+        _sheet("支出合同结算", _STAMP_EXPENSE_SETTLEMENT_BASE, parameter_keys=("start_date", "end_date"), order_by="[申请部门], [合同编号], [结算日期]"),
+        _sheet("报销结算", _STAMP_REIMBURSEMENT_BASE, parameter_keys=("start_date", "end_date"), order_by="[申请部门], [合同编号], [结算日期]"),
     ),
 )
 
@@ -620,7 +614,7 @@ def validate_report_read_only(report: ReportDefinition) -> None:
 
 def validate_sheet_read_only(sheet: ReportSheet) -> None:
     """确保单个工作表对应的所有查询均为只读。"""
-    for sql in (sheet.data_sql, sheet.preview_sql, sheet.count_sql):
+    for sql in (sheet.data_sql, sheet.page_sql, sheet.count_sql):
         validate_read_only_sql(sql)
 
 
@@ -643,6 +637,13 @@ def available_reports(mode: str) -> tuple[ReportDefinition, ...]:
 def build_params(sheet: ReportSheet, filters: Mapping[str, Any]) -> list[Any]:
     """按固定占位符顺序绑定页面参数，绝不拼接用户输入。"""
     try:
-        return [filters[key] for key in sheet.parameter_keys]
+        params: list[Any] = []
+        for key in sheet.parameter_keys:
+            value = filters[key]
+            # 页面中的结束日期包含当天；SQL 继续使用安全且适配 datetime 的左闭右开范围。
+            if key == "end_date" and isinstance(value, date):
+                value = value + timedelta(days=1)
+            params.append(value)
+        return params
     except KeyError as exc:
         raise ValueError("报表筛选参数不完整。") from exc

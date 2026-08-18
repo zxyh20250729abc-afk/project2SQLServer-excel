@@ -22,7 +22,7 @@ from reports import ReportDefinition, available_reports, build_params, get_repor
 def default_filter_values(report: ReportDefinition) -> dict[str, Any]:
     """为指定预设报表提供小范围、只读的连通性核验参数。"""
     start_date = date.today().replace(day=1)
-    end_date = (start_date.replace(day=28) + timedelta(days=4)).replace(day=1)
+    end_date = (start_date.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
     values: dict[str, Any] = {
         "department": None,
         "min_age": None,

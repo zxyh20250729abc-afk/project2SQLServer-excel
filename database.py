@@ -167,12 +167,23 @@ def get_output_columns(connection: pyodbc.Connection, sheet: ReportSheet, params
         raise QueryExecutionError("无法读取查询字段信息，请稍后重试或联系管理员。") from exc
 
 
-def fetch_preview(connection: pyodbc.Connection, sheet: ReportSheet, params: list[Any]) -> pd.DataFrame:
+def fetch_page(
+    connection: pyodbc.Connection,
+    sheet: ReportSheet,
+    params: list[Any],
+    *,
+    page: int,
+    page_size: int,
+) -> pd.DataFrame:
+    """只读取当前页，避免大结果集预览占用服务器和浏览器内存。"""
     validate_sheet_read_only(sheet)
+    if page < 1 or page_size < 1 or page_size > 50:
+        raise QueryExecutionError("分页参数无效，已停止查询。")
+    offset = (page - 1) * page_size
     try:
-        return pd.read_sql_query(sheet.preview_sql, connection, params=params)
+        return pd.read_sql_query(sheet.page_sql, connection, params=[*params, offset, page_size])
     except Exception as exc:  # pandas 会包装 pyodbc 异常
-        raise QueryExecutionError("预览查询失败，请检查筛选条件或联系管理员。") from exc
+        raise QueryExecutionError("分页查询失败，请检查筛选条件或联系管理员。") from exc
 
 
 def fetch_export(connection: pyodbc.Connection, sheet: ReportSheet, params: list[Any]) -> pd.DataFrame:

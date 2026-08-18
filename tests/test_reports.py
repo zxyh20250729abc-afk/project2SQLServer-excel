@@ -32,7 +32,7 @@ def test_business_reports_are_versioned_and_read_only():
         for sheet in approved.sheets:
             assert "@" not in sheet.data_sql
             validate_read_only_sql(sheet.data_sql)
-            validate_read_only_sql(sheet.preview_sql)
+            validate_read_only_sql(sheet.page_sql)
             validate_read_only_sql(sheet.count_sql)
 
 
@@ -42,7 +42,20 @@ def test_date_parameters_are_bound_in_fixed_order():
         report.sheets[0],
         {"start_date": date(2026, 1, 1), "end_date": date(2026, 2, 1)},
     )
-    assert params == [date(2026, 1, 1), date(2026, 2, 1), date(2026, 1, 1), date(2026, 2, 1)]
+    assert params == [date(2026, 1, 1), date(2026, 2, 2), date(2026, 1, 1), date(2026, 2, 2)]
+
+
+def test_all_business_reports_use_start_and_end_dates():
+    business_reports = [report for report in REPORTS.values() if not report.supports_demo]
+    for report in business_reports:
+        assert [item.key for item in report.filters] == ["start_date", "end_date"]
+
+
+def test_page_queries_are_limited_to_fifty_rows_by_bound_parameters():
+    for report in REPORTS.values():
+        for sheet in report.sheets:
+            assert "OFFSET ? ROWS FETCH NEXT ? ROWS ONLY" in sheet.page_sql
+            validate_read_only_sql(sheet.page_sql)
 
 
 def test_demo_mode_hides_real_business_reports():

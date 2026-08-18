@@ -15,7 +15,7 @@ from database import (
     ReadonlyAccountError,
     count_rows,
     fetch_export,
-    fetch_preview,
+    fetch_page,
     get_output_columns,
     readonly_connection,
 )
@@ -36,6 +36,11 @@ EXCEL_FILENAME_KEY = "last_excel_filename"
 AUDIT_OPERATOR = "匿名访问"
 ADDITIONAL_FILTER_ROWS_KEY = "additional_filter_rows"
 ADDITIONAL_FILTER_COUNTER_KEY = "additional_filter_counter"
+PAGE_KEY = "preview_page"
+BASE_SIGNATURE_KEY = "last_query_base_signature"
+THEME_KEY = "display_theme"
+PAGE_SIZE = 50
+APP_VERSION = "3.0"
 
 _NUMERIC_FIELD_HINTS = ("金额", "税额", "税率", "薪资", "年龄", "管理费")
 _DATE_FIELD_HINTS = ("日期", "时间")
@@ -74,6 +79,7 @@ def initialize_session() -> None:
     st.session_state.setdefault(PREVIEW_ERROR_KEY, None)
     st.session_state.setdefault(EXCEL_DATA_KEY, None)
     st.session_state.setdefault(EXCEL_FILENAME_KEY, None)
+    st.session_state.setdefault(THEME_KEY, "跟随系统")
 
 
 def filter_widget_key(report_key: str, filter_key: str) -> str:
@@ -90,6 +96,10 @@ def additional_filter_rows_key(report_key: str) -> str:
 
 def additional_filter_counter_key(report_key: str) -> str:
     return f"{ADDITIONAL_FILTER_COUNTER_KEY}_{report_key}"
+
+
+def page_widget_key(report_key: str) -> str:
+    return f"{PAGE_KEY}_{report_key}"
 
 
 def _add_additional_filter_row(report_key: str) -> None:
@@ -135,6 +145,75 @@ def reset_query_workspace() -> None:
     """进入或离开查询事项时重置首次展示状态。"""
     clear_last_result()
     st.session_state[INITIAL_PREVIEW_SIGNATURE_KEY] = None
+    st.session_state[BASE_SIGNATURE_KEY] = None
+
+
+def _change_page(report_key: str, page: int) -> None:
+    st.session_state[page_widget_key(report_key)] = max(1, page)
+
+
+def _select_all_fields(report_key: str, columns: tuple[str, ...]) -> None:
+    for column in columns:
+        st.session_state[f"field_choice_{report_key}_{column}"] = True
+    _clear_additional_filters(report_key)
+
+
+def _clear_all_fields(report_key: str, columns: tuple[str, ...]) -> None:
+    for column in columns:
+        st.session_state[f"field_choice_{report_key}_{column}"] = False
+    _clear_additional_filters(report_key)
+
+
+def apply_theme() -> None:
+    """应用中文主题选择；跟随系统时使用浏览器的系统颜色偏好。"""
+    theme = st.session_state.get(THEME_KEY, "跟随系统")
+    light = """
+        :root { color-scheme: light; }
+        .stApp, [data-testid="stAppViewContainer"] { background: #f6f8fb; color: #172033; }
+        [data-testid="stHeader"] { background: rgba(246,248,251,.92); }
+        [data-testid="stVerticalBlockBorderWrapper"] { background: #ffffff; border-color: #d8deea; }
+    """
+    dark = """
+        :root { color-scheme: dark; }
+        .stApp, [data-testid="stAppViewContainer"] { background: #0e1117; color: #fafafa; }
+        [data-testid="stHeader"] { background: rgba(14,17,23,.92); }
+        [data-testid="stVerticalBlockBorderWrapper"] { background: #111620; border-color: #343b4a; }
+    """
+    if theme == "白天":
+        palette = light
+    elif theme == "夜间":
+        palette = dark
+    else:
+        palette = light + f"@media (prefers-color-scheme: dark) {{ {dark} }}"
+    st.markdown(
+        f"""
+        <style>
+        {palette}
+        [data-testid="stToolbar"], #MainMenu, footer {{ display: none !important; }}
+        .st-key-additional_filter_panel {{
+            border: 2px solid #2f80ed !important;
+            border-radius: 14px !important;
+            padding: .75rem 1rem 1rem !important;
+            box-shadow: 0 6px 22px rgba(47,128,237,.14);
+        }}
+        .st-key-additional_filter_panel h3 {{ text-align: center; color: #2f80ed; }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_theme_selector() -> None:
+    """在页面右上方显示全中文的显示模式选择。"""
+    _, selector = st.columns((8, 2))
+    with selector:
+        st.selectbox(
+            "显示模式",
+            options=("跟随系统", "白天", "夜间"),
+            key=THEME_KEY,
+            help="选择页面的明暗外观。",
+        )
+    apply_theme()
 
 
 def choose_dataset(dataset_key: str) -> None:
@@ -217,7 +296,7 @@ def render_employee_filters(mode: str, sql_settings: dict[str, Any], report_key:
 
 def _default_date_range() -> tuple[date, date]:
     start_date = date.today().replace(day=1)
-    end_date = (start_date.replace(day=28) + timedelta(days=4)).replace(day=1)
+    end_date = (start_date.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
     return start_date, end_date
 
 
@@ -227,7 +306,7 @@ def friendly_filter_label(filter_key: str, fallback: str) -> str:
         "start_month": "起始月份",
         "end_month": "结束月份",
         "start_date": "开始日期（含）",
-        "end_date": "结束日期（不含）",
+        "end_date": "结束日期（含）",
     }
     return labels.get(filter_key, fallback)
 
@@ -259,8 +338,8 @@ def render_business_filters(report: ReportDefinition) -> tuple[dict[str, Any], s
 
     if "start_month" in values and "end_month" in values and values["start_month"] > values["end_month"]:
         return values, "起始月份不能晚于结束月份。"
-    if "start_date" in values and "end_date" in values and values["start_date"] >= values["end_date"]:
-        return values, "结束日期必须晚于开始日期。"
+    if "start_date" in values and "end_date" in values and values["start_date"] > values["end_date"]:
+        return values, "结束日期不能早于开始日期。"
     return values, None
 
 
@@ -319,8 +398,9 @@ def render_additional_filters(
         return [], None
     output_filters: list[OutputFilter] = []
     errors: list[str] = []
-    with st.expander(f"进一步筛选（{len(row_ids)} 项，可选）", expanded=bool(row_ids)):
-        st.caption("从已选择的信息中添加条件；所有条件会同时生效。同一字段可分别设置上下限。")
+    with st.container(border=True, key="additional_filter_panel"):
+        st.subheader("＋ 增加筛选条件")
+        st.caption(f"已添加 {len(row_ids)} 项（可选）。条件只能从已选择的信息中添加，并会同时生效。")
         with st.expander("匹配方式和筛选值怎么填写？", expanded=False):
             st.markdown("- **包含**：查找字段中带有该文字的记录，例如“华东”可以查到“华东一区”。")
             st.markdown("- **等于**：查找完全相同的记录，例如“财务部”不会匹配“财务共享中心”。")
@@ -400,29 +480,91 @@ def render_additional_filters(
                 else:
                     errors.append(f"请填写条件 {position} 的“{field.label}”筛选值，或移除该条件。")
 
-        st.button("＋ 添加一项条件", key=f"add_additional_filter_{dataset.report_key}", on_click=_add_additional_filter_row, args=(dataset.report_key,))
+        st.button(
+            "＋ 增加筛选条件",
+            key=f"add_additional_filter_{dataset.report_key}",
+            on_click=_add_additional_filter_row,
+            args=(dataset.report_key,),
+            type="primary",
+            use_container_width=True,
+        )
     return output_filters, errors[0] if errors else None
 
 
 def render_field_picker(dataset: DatasetPresentation) -> list[str]:
-    """展示中文字段目录；用户选择展示和导出的内容，而非数据库列。"""
+    """使用全中文字段选择器，避免原生多选框出现英文提示。"""
     options = tuple(field.column_name for field in dataset.fields)
-    widget_key = field_widget_key(dataset.report_key)
-    _set_default(widget_key, [field.column_name for field in dataset.fields if field.recommended])
-    selected = st.multiselect(
-        "我想查看哪些信息？",
-        options=options,
-        format_func=lambda column: next(field.label for field in dataset.fields if field.column_name == column),
-        key=widget_key,
-        help="系统只会展示和导出您选择的业务信息。",
-        on_change=_clear_additional_filters,
-        args=(dataset.report_key,),
-    )
+    field_by_column = {field.column_name: field for field in dataset.fields}
+    snapshot_key = field_widget_key(dataset.report_key)
+    if snapshot_key not in st.session_state:
+        st.session_state[snapshot_key] = [field.column_name for field in dataset.fields if field.recommended]
+    previous = list(st.session_state[snapshot_key])
+    previous_set = set(previous)
+    for field in dataset.fields:
+        _set_default(f"field_choice_{dataset.report_key}_{field.column_name}", field.column_name in previous_set)
+
+    st.markdown("**我想查看哪些信息？**")
+    actions = st.columns((3, 1, 1))
+    with actions[0]:
+        search = st.text_input(
+            "搜索信息",
+            key=f"field_search_{dataset.report_key}",
+            placeholder="输入名称查找，例如：金额、日期、部门",
+        )
+    with actions[1]:
+        st.write("")
+        st.button(
+            "全选",
+            key=f"select_all_fields_{dataset.report_key}",
+            on_click=_select_all_fields,
+            args=(dataset.report_key, options),
+            use_container_width=True,
+        )
+    with actions[2]:
+        st.write("")
+        st.button(
+            "清空",
+            key=f"clear_all_fields_{dataset.report_key}",
+            on_click=_clear_all_fields,
+            args=(dataset.report_key, options),
+            use_container_width=True,
+        )
+
+    normalized_search = search.strip().casefold()
+    visible_fields = [
+        field
+        for field in dataset.fields
+        if not normalized_search
+        or normalized_search in f"{field.label} {field.description}".casefold()
+    ]
+    if not visible_fields:
+        st.info("无结果")
+    else:
+        with st.container(height=250, border=True):
+            columns = st.columns(2)
+            for index, field in enumerate(visible_fields):
+                with columns[index % 2]:
+                    st.checkbox(
+                        field.label,
+                        key=f"field_choice_{dataset.report_key}_{field.column_name}",
+                        help=field.description,
+                    )
+
+    selected = [
+        column
+        for column in options
+        if st.session_state.get(f"field_choice_{dataset.report_key}_{column}", False)
+    ]
+    if selected != previous:
+        st.session_state[snapshot_key] = selected
+        _clear_additional_filters(dataset.report_key)
+    selected_labels = [field_by_column[column].label for column in selected]
+    st.caption(f"已选择 {len(selected)} 项：{'、'.join(selected_labels) if selected_labels else '尚未选择'}")
     with st.expander("字段说明", expanded=False):
         for field in dataset.fields:
             mark = "推荐" if field.recommended else "可选"
             st.markdown(f"**{field.label}**（{mark}）：{field.description}")
-    return list(selected)
+    return selected
 
 
 def query_summary(
@@ -469,6 +611,7 @@ def execute_query(
     sql_settings: dict[str, Any],
     app_settings: dict[str, Any],
     include_export: bool = False,
+    page: int = 1,
 ) -> dict[str, Any]:
     """执行固定的只读查询；实时预览不会读取全量导出数据。"""
     raw_exports: dict[str, Any] = {}
@@ -486,7 +629,8 @@ def execute_query(
         )
         if include_export:
             raw_exports[report.sheets[0].name] = export_data
-        raw_previews.append((report.sheets[0].name, len(export_data), export_data.head(100)))
+        page_start = (page - 1) * PAGE_SIZE
+        raw_previews.append((report.sheets[0].name, len(export_data), export_data.iloc[page_start : page_start + PAGE_SIZE]))
         applied_filter_sheets[report.sheets[0].name] = tuple(_output_filter_label(item) for item in output_filters)
     else:
         with readonly_connection(sql_settings) as connection:
@@ -517,7 +661,13 @@ def execute_query(
                 raise QueryExecutionError("所选附加条件不适用于当前查询结果，已停止查询。")
 
             for sheet, row_count, params in sheet_counts:
-                raw_previews.append((sheet.name, row_count, fetch_preview(connection, sheet, params)))
+                raw_previews.append(
+                    (
+                        sheet.name,
+                        row_count,
+                        fetch_page(connection, sheet, params, page=page, page_size=PAGE_SIZE),
+                    )
+                )
                 if include_export:
                     raw_exports[sheet.name] = fetch_export(connection, sheet, params)
 
@@ -549,6 +699,8 @@ def execute_query(
         "omitted_sheets": omitted_sheets,
         "applied_filter_sheets": applied_filter_sheets,
         "output_filter_labels": tuple(_output_filter_label(item) for item in output_filters),
+        "page": page,
+        "page_size": PAGE_SIZE,
     }
 
 
@@ -559,6 +711,7 @@ def preview_signature(
     filters: dict[str, Any],
     selected_fields: list[str],
     output_filters: list[OutputFilter],
+    page: int = 1,
 ) -> tuple[Any, ...]:
     """将当前选择转换成可比较的签名，避免无变化时重复查询。"""
     normalized_filters = tuple(
@@ -568,7 +721,7 @@ def preview_signature(
     normalized_output_filters = tuple(
         (item.column_name, item.operator, item.value.strip()) for item in output_filters
     )
-    return mode, report.key, tuple(selected_fields), normalized_filters, normalized_output_filters
+    return mode, report.key, tuple(selected_fields), normalized_filters, normalized_output_filters, page
 
 
 def audit_filter_payload(filters: dict[str, Any], output_filters: list[OutputFilter]) -> dict[str, Any]:
@@ -583,12 +736,36 @@ def audit_filter_payload(filters: dict[str, Any], output_filters: list[OutputFil
 
 
 def render_preview_result(result: dict[str, Any], dataset: DatasetPresentation) -> bool:
-    """右侧工作区：保持可见的前 100 行实时预览，返回是否请求全量 Excel。"""
+    """右侧工作区：每页最多 50 行实时预览，返回是否请求全量 Excel。"""
     previews: list[tuple[str, int, Any]] = result["previews"]
     total_rows = sum(row_count for _, row_count, _ in previews)
+    current_page = int(result.get("page", 1))
+    page_size = int(result.get("page_size", PAGE_SIZE))
+    total_pages = max(1, max(((row_count + page_size - 1) // page_size for _, row_count, _ in previews), default=1))
     st.subheader("实时预览")
-    st.caption("左侧字段或条件变更后会自动更新；为保护性能，此处每张表最多展示前 100 行。")
+    st.caption(f"左侧字段或条件变更后会自动更新；结果按每页最多 {page_size} 行显示。")
     st.success(f"当前条件共匹配 {total_rows:,} 行。")
+    navigation = st.columns((1, 2, 1))
+    with navigation[0]:
+        st.button(
+            "← 上一页",
+            key=f"previous_page_{result['report_key']}_{current_page}",
+            disabled=current_page <= 1,
+            on_click=_change_page,
+            args=(result["report_key"], current_page - 1),
+            use_container_width=True,
+        )
+    with navigation[1]:
+        st.markdown(f"<p style='text-align:center;margin:.55rem 0'>第 {current_page:,} 页，共 {total_pages:,} 页</p>", unsafe_allow_html=True)
+    with navigation[2]:
+        st.button(
+            "下一页 →",
+            key=f"next_page_{result['report_key']}_{current_page}",
+            disabled=current_page >= total_pages,
+            on_click=_change_page,
+            args=(result["report_key"], current_page + 1),
+            use_container_width=True,
+        )
     if result["omitted_sheets"]:
         st.caption(f"未展示 {', '.join(result['omitted_sheets'])}，因为当前未选择其中适用的字段。")
     applied_filter_sheets: dict[str, tuple[str, ...]] = result.get("applied_filter_sheets", {})
@@ -605,7 +782,7 @@ def render_preview_result(result: dict[str, Any], dataset: DatasetPresentation) 
     if len(previews) == 1:
         sheet_name, row_count, preview = previews[0]
         if row_count:
-            st.caption(f"{sheet_name}｜展示前 {len(preview):,} 行")
+            st.caption(f"{sheet_name}｜本页 {len(preview):,} 行")
             st.dataframe(preview, width="stretch", hide_index=True, height=480)
         else:
             st.info("当前条件没有数据。")
@@ -614,7 +791,7 @@ def render_preview_result(result: dict[str, Any], dataset: DatasetPresentation) 
         for tab, (sheet_name, row_count, preview) in zip(tabs, previews):
             with tab:
                 if row_count:
-                    st.caption(f"展示前 {len(preview):,} 行")
+                    st.caption(f"本页 {len(preview):,} 行")
                     st.dataframe(preview, width="stretch", hide_index=True, height=440)
                 else:
                     st.info("当前条件没有数据。")
@@ -644,7 +821,9 @@ def render_excel_download(dataset: DatasetPresentation) -> None:
 
 
 def render_home(mode: str) -> None:
+    render_theme_selector()
     st.title("数据查询助手")
+    st.caption(f"版本 {APP_VERSION}")
     render_safety_status(mode)
 
     datasets = available_datasets(mode)
@@ -683,6 +862,7 @@ def render_home(mode: str) -> None:
 
 def render_builder(dataset: DatasetPresentation, mode: str, sql_settings: dict[str, Any], app_settings: dict[str, Any]) -> None:
     report = get_report(dataset.report_key)
+    render_theme_selector()
     if st.button("← 返回首页"):
         go_home()
 
@@ -702,7 +882,7 @@ def render_builder(dataset: DatasetPresentation, mode: str, sql_settings: dict[s
             selected_fields = render_field_picker(dataset)
             st.divider()
             st.subheader("2. 设置查询条件")
-            st.caption("基础范围用于限定本次查询；进一步筛选只能从上方已选信息中选择。")
+            st.caption("基础范围用于限定本次查询；增加筛选条件时只能从上方已选信息中选择。")
             filters, filter_error = render_filters(report, mode, sql_settings)
             if filter_error:
                 st.error(filter_error)
@@ -712,12 +892,27 @@ def render_builder(dataset: DatasetPresentation, mode: str, sql_settings: dict[s
     is_ready = not filter_error and filters is not None and not output_filter_error and bool(selected_fields)
     signature: tuple[Any, ...] | None = None
     if is_ready:
+        current_page_key = page_widget_key(report.key)
+        st.session_state.setdefault(current_page_key, 1)
+        base_signature = preview_signature(
+            mode=mode,
+            report=report,
+            filters=filters,
+            selected_fields=selected_fields,
+            output_filters=output_filters,
+            page=1,
+        )
+        if st.session_state.get(BASE_SIGNATURE_KEY) not in {None, base_signature}:
+            st.session_state[current_page_key] = 1
+        st.session_state[BASE_SIGNATURE_KEY] = base_signature
+        current_page = int(st.session_state[current_page_key])
         signature = preview_signature(
             mode=mode,
             report=report,
             filters=filters,
             selected_fields=selected_fields,
             output_filters=output_filters,
+            page=current_page,
         )
         initial_signature = st.session_state.get(INITIAL_PREVIEW_SIGNATURE_KEY)
         if initial_signature is None:
@@ -726,7 +921,7 @@ def render_builder(dataset: DatasetPresentation, mode: str, sql_settings: dict[s
             st.session_state[PREVIEW_ERROR_KEY] = None
             preview_error = None
         elif st.session_state.get(PREVIEW_SIGNATURE_KEY) != signature:
-            # 条件变更后先撤销旧导出，再只重新读取前 100 行预览。
+            # 条件或页码变更后先撤销旧导出，再只读取当前 50 行预览。
             clear_excel_export()
             try:
                 with st.spinner("正在更新预览..."):
@@ -740,6 +935,7 @@ def render_builder(dataset: DatasetPresentation, mode: str, sql_settings: dict[s
                         sql_settings=sql_settings,
                         app_settings=app_settings,
                         include_export=False,
+                        page=current_page,
                     )
                 st.session_state[RESULT_KEY] = result
                 st.session_state[PREVIEW_SIGNATURE_KEY] = signature
@@ -792,6 +988,7 @@ def render_builder(dataset: DatasetPresentation, mode: str, sql_settings: dict[s
                                 sql_settings=sql_settings,
                                 app_settings=app_settings,
                                 include_export=True,
+                                page=current_page,
                             )
                         total_rows = sum(row_count for _, row_count, _ in export_result["previews"])
                         st.session_state[RESULT_KEY] = export_result

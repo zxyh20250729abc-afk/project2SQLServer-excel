@@ -39,3 +39,37 @@ def test_demo_preview_does_not_load_full_export_until_requested():
 
     assert list(full_export["exports"]["员工信息"].columns) == selected_fields
     assert len(full_export["exports"]["员工信息"]) == 45
+
+
+def test_demo_preview_uses_fifty_row_pages():
+    dataset = get_dataset("employee_list")
+    report = get_report(dataset.report_key)
+    filters = {"department": None, "min_age": None, "max_age": None}
+    selected_fields = ["人员编号", "部门"]
+
+    first_page = execute_query(
+        mode="demo",
+        report=report,
+        dataset=dataset,
+        filters=filters,
+        output_filters=[],
+        selected_fields=selected_fields,
+        sql_settings={},
+        app_settings={},
+        page=1,
+    )
+    second_page = execute_query(
+        mode="demo",
+        report=report,
+        dataset=dataset,
+        filters=filters,
+        output_filters=[],
+        selected_fields=selected_fields,
+        sql_settings={},
+        app_settings={},
+        page=2,
+    )
+
+    assert len(first_page["previews"][0][2]) == 50
+    assert len(second_page["previews"][0][2]) == 50
+    assert first_page["previews"][0][2].iloc[0]["人员编号"] != second_page["previews"][0][2].iloc[0]["人员编号"]

@@ -92,6 +92,12 @@ def _tcp_server(value: Any) -> str:
     return server if server.casefold().startswith("tcp:") else f"tcp:{server}"
 
 
+def _odbc_attribute_value(value: Any) -> str:
+    """安全编码 ODBC 属性值，支持密码中的分号等特殊字符。"""
+    # ODBC 使用大括号包裹属性值；属性值中的右大括号需使用双右大括号转义。
+    return "{" + str(value).replace("}", "}}") + "}"
+
+
 def build_connection_string(settings: Mapping[str, Any]) -> str:
     """从密钥配置构造连接串；调用方不得记录返回值，因其包含密码。"""
     required = ("server", "database", "username", "password", "driver")
@@ -101,10 +107,10 @@ def build_connection_string(settings: Mapping[str, Any]) -> str:
 
     return (
         f"DRIVER={{{settings['driver']}}};"
-        f"SERVER={_tcp_server(settings['server'])};"
-        f"DATABASE={settings['database']};"
-        f"UID={settings['username']};"
-        f"PWD={settings['password']};"
+        f"SERVER={_odbc_attribute_value(_tcp_server(settings['server']))};"
+        f"DATABASE={_odbc_attribute_value(settings['database'])};"
+        f"UID={_odbc_attribute_value(settings['username'])};"
+        f"PWD={_odbc_attribute_value(settings['password'])};"
         f"Encrypt={_as_bool(settings.get('encrypt', True))};"
         f"TrustServerCertificate={_as_bool(settings.get('trust_server_certificate', False))};"
         "ApplicationIntent=ReadOnly;"

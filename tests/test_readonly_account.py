@@ -45,4 +45,17 @@ def test_connection_string_forces_tcp_without_exposing_password():
             "driver": "ODBC Driver 18 for SQL Server",
         }
     )
-    assert "SERVER=tcp:192.0.2.19,1433;" in connection_string
+    assert "SERVER={tcp:192.0.2.19,1433};" in connection_string
+
+
+def test_connection_string_escapes_special_characters_in_password():
+    connection_string = build_connection_string(
+        {
+            "server": "192.0.2.19,1433",
+            "database": "ekp_dyy_test",
+            "username": "report_export_reader",
+            "password": "secret;with}characters",
+            "driver": "ODBC Driver 17 for SQL Server",
+        }
+    )
+    assert "PWD={secret;with}}characters};" in connection_string

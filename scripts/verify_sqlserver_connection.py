@@ -33,7 +33,9 @@ def default_filter_values(report: ReportDefinition) -> dict[str, Any]:
         "start_date": start_date,
         "end_date": end_date,
     }
-    return {definition.key: values[definition.key] for definition in report.filters} | {
+    # 复合筛选项（例如“年龄区间”）的界面 key 不一定会直接成为 SQL 参数。
+    # 只收集已定义的默认值，实际 SQL 参数再按 parameter_keys 补齐。
+    return {definition.key: values[definition.key] for definition in report.filters if definition.key in values} | {
         key: values[key]
         for sheet in report.sheets
         for key in sheet.parameter_keys

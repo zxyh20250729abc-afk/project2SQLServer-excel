@@ -41,5 +41,5 @@ def test_missing_preview_values_are_displayed_in_chinese_without_mutating_source
 
     displayed = localize_missing_values(source)
 
-    assert displayed.iloc[0].tolist() == ["无", "无"]
+    assert displayed.iloc[0].tolist() == ["null", "null"]
     assert source.iloc[0].isna().all()

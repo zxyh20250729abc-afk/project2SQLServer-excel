@@ -180,6 +180,37 @@ def apply_theme() -> None:
         .stApp, [data-testid="stAppViewContainer"] { background: #0e1117; color: #fafafa; }
         [data-testid="stHeader"] { background: rgba(14,17,23,.92); }
         [data-testid="stVerticalBlockBorderWrapper"] { background: #111620; border-color: #343b4a; }
+        [data-testid="stTextInput"] [data-baseweb="input"],
+        [data-testid="stNumberInput"] [data-baseweb="input"],
+        [data-testid="stDateInput"] [data-baseweb="input"],
+        [data-testid="stSelectbox"] [data-baseweb="select"] > div,
+        [data-testid="stMultiSelect"] [data-baseweb="select"] > div,
+        [data-testid="stTextArea"] textarea {
+            background: #1b2230 !important;
+            color: #f8fafc !important;
+            border-color: #465064 !important;
+        }
+        [data-testid="stTextInput"] input,
+        [data-testid="stNumberInput"] input,
+        [data-testid="stDateInput"] input,
+        [data-testid="stTextArea"] textarea,
+        [data-testid="stSelectbox"] [data-baseweb="select"] *,
+        [data-testid="stMultiSelect"] [data-baseweb="select"] * {
+            color: #f8fafc !important;
+        }
+        [data-testid="stTextInput"] input::placeholder,
+        [data-testid="stNumberInput"] input::placeholder,
+        [data-testid="stDateInput"] input::placeholder,
+        [data-testid="stTextArea"] textarea::placeholder {
+            color: #9aa6b8 !important;
+            opacity: 1;
+        }
+        [data-baseweb="popover"] [role="listbox"],
+        [data-baseweb="menu"] {
+            background: #1b2230 !important;
+            color: #f8fafc !important;
+        }
+        [data-baseweb="popover"] [role="option"] { color: #f8fafc !important; }
     """
     if theme == "白天":
         palette = light
@@ -801,8 +832,8 @@ def audit_filter_payload(filters: dict[str, Any], output_filters: list[OutputFil
 
 
 def localize_missing_values(dataframe: Any) -> Any:
-    """仅为页面预览将真实空值显示为“无”，不修改查询结果。"""
-    return dataframe.astype(object).where(dataframe.notna(), "无")
+    """仅为页面预览将真实空值显示为 null，不修改查询结果。"""
+    return dataframe.astype(object).where(dataframe.notna(), "null")
 
 
 def render_preview_result(result: dict[str, Any], dataset: DatasetPresentation) -> bool:

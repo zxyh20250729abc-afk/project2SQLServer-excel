@@ -1,11 +1,16 @@
+import inspect
+from pathlib import Path
+
 import pandas as pd
 from streamlit.testing.v1 import AppTest
 
-from app import localize_missing_values
+from app import apply_theme, localize_missing_values
+
+APP_PATH = Path(__file__).resolve().parents[1] / "app.py"
 
 
 def test_first_release_has_no_personal_identity_or_saved_query_controls():
-    app = AppTest.from_file("app.py")
+    app = AppTest.from_file(APP_PATH)
     app.run(timeout=10)
 
     assert not app.exception
@@ -17,7 +22,7 @@ def test_first_release_has_no_personal_identity_or_saved_query_controls():
 
 
 def test_builder_provides_additional_business_filter_rows():
-    app = AppTest.from_file("app.py")
+    app = AppTest.from_file(APP_PATH)
     app.run(timeout=10)
     app.button(key="start_finance_expense_invoice").click().run(timeout=10)
 
@@ -43,3 +48,14 @@ def test_missing_preview_values_are_displayed_in_chinese_without_mutating_source
 
     assert displayed.iloc[0].tolist() == ["null", "null"]
     assert source.iloc[0].isna().all()
+
+
+def test_dark_theme_covers_current_streamlit_input_layers():
+    theme_css_source = inspect.getsource(apply_theme)
+
+    assert '[data-baseweb="base-input"]' in theme_css_source
+    assert '[data-testid="stTextInputRootElement"]' in theme_css_source
+    assert '[data-testid="stSelectbox"] [role="group"]' in theme_css_source
+    assert "background-color: #1a2230 !important" in theme_css_source
+    assert "input:-webkit-autofill" in theme_css_source
+    assert "background-color: transparent !important" in theme_css_source

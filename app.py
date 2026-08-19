@@ -180,23 +180,66 @@ def apply_theme() -> None:
         .stApp, [data-testid="stAppViewContainer"] { background: #0e1117; color: #fafafa; }
         [data-testid="stHeader"] { background: rgba(14,17,23,.92); }
         [data-testid="stVerticalBlockBorderWrapper"] { background: #111620; border-color: #343b4a; }
+        /* Streamlit 版本升级后输入控件会多一层 BaseWeb 容器，内外层都需要设置深色。 */
         [data-testid="stTextInput"] [data-baseweb="input"],
         [data-testid="stNumberInput"] [data-baseweb="input"],
         [data-testid="stDateInput"] [data-baseweb="input"],
+        [data-testid="stTextInput"] [data-baseweb="base-input"],
+        [data-testid="stNumberInput"] [data-baseweb="base-input"],
+        [data-testid="stDateInput"] [data-baseweb="base-input"],
+        [data-testid="stTextInputRootElement"],
+        [data-testid="stNumberInput"] [role="group"],
+        [data-testid="stDateInput"] [role="group"],
+        [data-testid="stSelectbox"] [role="group"],
+        [data-testid="stMultiSelect"] [role="group"],
         [data-testid="stSelectbox"] [data-baseweb="select"] > div,
         [data-testid="stMultiSelect"] [data-baseweb="select"] > div,
         [data-testid="stTextArea"] textarea {
-            background: #1b2230 !important;
+            background-color: #1a2230 !important;
             color: #f8fafc !important;
-            border-color: #465064 !important;
+            border-color: #3f4b5f !important;
+            box-shadow: none !important;
         }
         [data-testid="stTextInput"] input,
         [data-testid="stNumberInput"] input,
         [data-testid="stDateInput"] input,
         [data-testid="stTextArea"] textarea,
+        [data-testid="stSelectbox"] [role="group"] *,
+        [data-testid="stMultiSelect"] [role="group"] *,
         [data-testid="stSelectbox"] [data-baseweb="select"] *,
         [data-testid="stMultiSelect"] [data-baseweb="select"] * {
             color: #f8fafc !important;
+        }
+        [data-testid="stTextInput"] input,
+        [data-testid="stNumberInput"] input,
+        [data-testid="stDateInput"] input {
+            background-color: transparent !important;
+            caret-color: #f8fafc !important;
+        }
+        [data-testid="stNumberInput"] button {
+            background-color: #232d3d !important;
+            color: #dbe5f3 !important;
+            border-color: #3f4b5f !important;
+        }
+        [data-testid="stTextInput"] [data-baseweb="input"]:focus-within,
+        [data-testid="stNumberInput"] [data-baseweb="input"]:focus-within,
+        [data-testid="stDateInput"] [data-baseweb="input"]:focus-within,
+        [data-testid="stTextInputRootElement"]:focus-within,
+        [data-testid="stNumberInput"] [role="group"]:focus-within,
+        [data-testid="stDateInput"] [role="group"]:focus-within,
+        [data-testid="stSelectbox"] [role="group"]:focus-within,
+        [data-testid="stMultiSelect"] [role="group"]:focus-within,
+        [data-testid="stSelectbox"] [data-baseweb="select"] > div:focus-within,
+        [data-testid="stMultiSelect"] [data-baseweb="select"] > div:focus-within {
+            border-color: #6c9bd2 !important;
+            box-shadow: 0 0 0 1px #6c9bd2 !important;
+        }
+        [data-testid="stTextInput"] input:-webkit-autofill,
+        [data-testid="stNumberInput"] input:-webkit-autofill,
+        [data-testid="stDateInput"] input:-webkit-autofill {
+            -webkit-text-fill-color: #f8fafc !important;
+            -webkit-box-shadow: 0 0 0 1000px #1a2230 inset !important;
+            caret-color: #f8fafc !important;
         }
         [data-testid="stTextInput"] input::placeholder,
         [data-testid="stNumberInput"] input::placeholder,
@@ -206,11 +249,13 @@ def apply_theme() -> None:
             opacity: 1;
         }
         [data-baseweb="popover"] [role="listbox"],
-        [data-baseweb="menu"] {
-            background: #1b2230 !important;
+        [data-baseweb="menu"],
+        [role="listbox"] {
+            background: #1a2230 !important;
             color: #f8fafc !important;
         }
-        [data-baseweb="popover"] [role="option"] { color: #f8fafc !important; }
+        [data-baseweb="popover"] [role="option"],
+        [role="listbox"] [role="option"] { color: #f8fafc !important; }
     """
     if theme == "白天":
         palette = light

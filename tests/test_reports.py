@@ -51,6 +51,16 @@ def test_all_business_reports_use_start_and_end_dates():
         assert [item.key for item in report.filters] == ["start_date", "end_date"]
 
 
+def test_stamp_tax_sheets_use_catalog_column_names_consistently():
+    sheets = {sheet.name: sheet for sheet in get_report("contract_stamp_tax_detail").sheets}
+
+    assert "AS [合同类别]" in sheets["采购合同"].base_sql
+    assert "[采购合同类别]" not in sheets["采购合同"].base_sql
+    for name in ("收入合同结算", "支出合同结算", "报销结算"):
+        assert "AS [合同备案时间]" in sheets[name].base_sql
+        assert "[合同备案日期]" not in sheets[name].base_sql
+
+
 def test_page_queries_are_limited_to_fifty_rows_by_bound_parameters():
     for report in REPORTS.values():
         for sheet in report.sheets:

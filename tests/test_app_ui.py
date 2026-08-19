@@ -59,3 +59,4 @@ def test_dark_theme_covers_current_streamlit_input_layers():
     assert "background-color: #1a2230 !important" in theme_css_source
     assert "input:-webkit-autofill" in theme_css_source
     assert "background-color: transparent !important" in theme_css_source
+    assert '.stApp input[type="text"]' in theme_css_source

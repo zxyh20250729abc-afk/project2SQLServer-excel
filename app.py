@@ -216,6 +216,15 @@ def apply_theme() -> None:
             background-color: transparent !important;
             caret-color: #f8fafc !important;
         }
+        /* 兼容服务器上不同 Streamlit 版本的输入框 DOM 结构。 */
+        .stApp input[type="text"],
+        .stApp input[type="number"],
+        .stApp input[type="date"],
+        .stApp textarea {
+            background-color: #1a2230 !important;
+            color: #f8fafc !important;
+            caret-color: #f8fafc !important;
+        }
         [data-testid="stNumberInput"] button {
             background-color: #232d3d !important;
             color: #dbe5f3 !important;

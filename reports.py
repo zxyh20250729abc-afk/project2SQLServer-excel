@@ -474,7 +474,7 @@ SELECT
     S.fd_name AS [部门名称],
     C.fd_record_reg_no AS [合同编号],
     C.doc_subject AS [合同名称],
-    (SELECT fd_name FROM mod_base_con_cglx WHERE fd_id = C.fd_purch_contract_type_id) AS [采购合同类别],
+    (SELECT fd_name FROM mod_base_con_cglx WHERE fd_id = C.fd_purch_contract_type_id) AS [合同类别],
     (SELECT fd_name FROM mod_base_price_fix WHERE fd_id = C.fd_contract_price_id) AS [合同定价类型],
     C.fd_sign_date AS [合同签订时间],
     FORMAT(C.fd_contract_reg_date, 'yyyy-MM-dd') AS [合同备案时间],
@@ -499,7 +499,7 @@ SELECT
     (SELECT fd_name FROM mod_base_grade_cate WHERE fd_code = T3.fd_grade_type_code) AS [合同类别],
     (SELECT fd_name FROM mod_base_price_fix WHERE fd_id = T3.fd_contract_price_id) AS [合同定价类型],
     T3.fd_contract_money AS [合同金额],
-    T3.fd_contract_reg_date AS [合同备案日期],
+    T3.fd_contract_reg_date AS [合同备案时间],
     T2.fd_create_time AS [结算日期],
     T1.fd_settle_amount AS [结算金额],
     CASE WHEN T3.fd_contract_text_sure_amount = 1 THEN '是' ELSE '否' END AS [是否约定金额]
@@ -520,7 +520,7 @@ SELECT
     (SELECT fd_name FROM mod_base_grade_cate WHERE fd_code = T3.fd_grade_type_code) AS [合同类别],
     (SELECT fd_name FROM mod_base_price_fix WHERE fd_id = T3.fd_contract_price_id) AS [合同定价类型],
     T3.fd_contract_money AS [合同金额],
-    T3.fd_contract_reg_date AS [合同备案日期],
+    T3.fd_contract_reg_date AS [合同备案时间],
     T2.fd_create_time AS [结算日期],
     T1.fd_settle_amount AS [结算金额],
     CASE WHEN T3.fd_contract_text_sure_amount = 1 THEN '是' ELSE '否' END AS [是否约定金额]
@@ -541,7 +541,7 @@ SELECT
     (SELECT fd_name FROM mod_base_grade_cate WHERE fd_code = T3.fd_grade_type_code) AS [合同类别],
     (SELECT fd_name FROM mod_base_price_fix WHERE fd_id = T3.fd_contract_price_id) AS [合同定价类型],
     T3.fd_contract_money AS [合同金额],
-    T3.fd_contract_reg_date AS [合同备案日期],
+    T3.fd_contract_reg_date AS [合同备案时间],
     T2.fd_create_time AS [结算日期],
     T1.fd_pay_settle_amount AS [结算金额],
     CASE WHEN T3.fd_contract_text_sure_amount = 1 THEN '是' ELSE '否' END AS [是否约定金额]

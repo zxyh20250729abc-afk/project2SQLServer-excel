@@ -72,3 +72,5 @@ def test_enterprise_theme_has_accessible_interaction_and_responsive_tokens():
     assert "prefers-reduced-motion: reduce" in theme_css_source
     assert "@media (max-width: 760px)" in theme_css_source
     assert ".react-aria-SelectionIndicator" in theme_css_source
+    assert '[data-testid="stCaptionContainer"]' in theme_css_source
+    assert "margin-bottom: 0 !important" in theme_css_source

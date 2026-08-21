@@ -439,10 +439,15 @@ def apply_theme() -> None:
             background: var(--primary-soft);
             border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--border));
             border-radius: 10px;
+            gap: .35rem !important;
             margin-top: .6rem;
-            padding: .55rem .75rem;
+            padding: .7rem .8rem .85rem;
         }}
         [class*="st-key-selected_summary_"] p {{ margin: 0; }}
+        [class*="st-key-selected_summary_"] [data-testid="stMarkdownContainer"],
+        [class*="st-key-selected_summary_"] [data-testid="stCaptionContainer"] {{
+            margin-bottom: 0 !important;
+        }}
         .st-key-query_controls,
         .st-key-results_workspace {{ align-self: start; }}
         .st-key-additional_filter_panel {{

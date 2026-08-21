@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from calendar import monthrange
 from datetime import date, timedelta
+from html import escape
 from typing import Any
 
 import streamlit as st
@@ -170,16 +171,54 @@ def apply_theme() -> None:
     """应用中文主题选择；跟随系统时使用浏览器的系统颜色偏好。"""
     theme = st.session_state.get(THEME_KEY, "跟随系统")
     light = """
-        :root { color-scheme: light; }
-        .stApp, [data-testid="stAppViewContainer"] { background: #f6f8fb; color: #172033; }
-        [data-testid="stHeader"] { background: rgba(246,248,251,.92); }
-        [data-testid="stVerticalBlockBorderWrapper"] { background: #ffffff; border-color: #d8deea; }
+        :root {
+            color-scheme: light;
+            --app-bg: #f4f7fb;
+            --surface: #ffffff;
+            --surface-subtle: #f8fafc;
+            --surface-strong: #edf3fb;
+            --text-primary: #162033;
+            --text-secondary: #526077;
+            --border: #dbe3ef;
+            --border-strong: #c5d1e1;
+            --primary: #1e4f91;
+            --primary-hover: #183f74;
+            --primary-soft: #eaf2fc;
+            --success: #19724a;
+            --success-soft: #e9f7f0;
+            --warning: #9a5b08;
+            --warning-soft: #fff6e6;
+            --danger: #b4232f;
+            --shadow-card: 0 1px 2px rgba(16, 24, 40, .04), 0 8px 24px rgba(31, 56, 88, .06);
+        }
+        .stApp, [data-testid="stAppViewContainer"] { background: var(--app-bg); color: var(--text-primary); }
+        [data-testid="stHeader"] { background: rgba(244,247,251,.94); }
+        [data-testid="stVerticalBlockBorderWrapper"] { background: var(--surface); border-color: var(--border); }
     """
     dark = """
-        :root { color-scheme: dark; }
-        .stApp, [data-testid="stAppViewContainer"] { background: #0e1117; color: #fafafa; }
-        [data-testid="stHeader"] { background: rgba(14,17,23,.92); }
-        [data-testid="stVerticalBlockBorderWrapper"] { background: #111620; border-color: #343b4a; }
+        :root {
+            color-scheme: dark;
+            --app-bg: #0d1420;
+            --surface: #131d2a;
+            --surface-subtle: #182433;
+            --surface-strong: #202e40;
+            --text-primary: #f2f6fb;
+            --text-secondary: #b4c0d0;
+            --border: #2c3b4f;
+            --border-strong: #40536c;
+            --primary: #76a9e6;
+            --primary-hover: #96c0ef;
+            --primary-soft: #1b3452;
+            --success: #6dd3a1;
+            --success-soft: #14362a;
+            --warning: #f2bd67;
+            --warning-soft: #3b2c15;
+            --danger: #ff8993;
+            --shadow-card: 0 1px 2px rgba(0, 0, 0, .25), 0 12px 30px rgba(0, 0, 0, .18);
+        }
+        .stApp, [data-testid="stAppViewContainer"] { background: var(--app-bg); color: var(--text-primary); }
+        [data-testid="stHeader"] { background: rgba(13,20,32,.94); }
+        [data-testid="stVerticalBlockBorderWrapper"] { background: var(--surface); border-color: var(--border); }
         /* Streamlit 版本升级后输入控件会多一层 BaseWeb 容器，内外层都需要设置深色。 */
         [data-testid="stTextInput"] [data-baseweb="input"],
         [data-testid="stNumberInput"] [data-baseweb="input"],
@@ -265,6 +304,8 @@ def apply_theme() -> None:
         }
         [data-baseweb="popover"] [role="option"],
         [role="listbox"] [role="option"] { color: #f8fafc !important; }
+        [data-baseweb="popover"] [role="option"]:hover,
+        [role="listbox"] [role="option"]:hover { background: #26364a !important; }
     """
     if theme == "白天":
         palette = light
@@ -276,14 +317,173 @@ def apply_theme() -> None:
         f"""
         <style>
         {palette}
-        [data-testid="stToolbar"], #MainMenu, footer {{ display: none !important; }}
-        .st-key-additional_filter_panel {{
-            border: 2px solid #2f80ed !important;
-            border-radius: 14px !important;
-            padding: .75rem 1rem 1rem !important;
-            box-shadow: 0 6px 22px rgba(47,128,237,.14);
+        [data-testid="stHeader"], [data-testid="stToolbar"], #MainMenu, footer {{ display: none !important; }}
+        html, body, [class*="css"] {{
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif;
         }}
-        .st-key-additional_filter_panel h3 {{ text-align: center; color: #2f80ed; }}
+        .stApp {{ font-size: 16px; line-height: 1.55; }}
+        .block-container {{
+            max-width: 1540px;
+            padding-top: 1.25rem;
+            padding-bottom: 3rem;
+        }}
+        h1, h2, h3 {{ color: var(--text-primary) !important; letter-spacing: -.02em; }}
+        h1 {{ font-size: clamp(1.75rem, 2.4vw, 2.35rem) !important; line-height: 1.22 !important; margin-bottom: .35rem !important; }}
+        h2 {{ font-size: 1.25rem !important; line-height: 1.35 !important; }}
+        h3 {{ font-size: 1.08rem !important; line-height: 1.4 !important; }}
+        p, label, [data-testid="stCaptionContainer"] {{ color: var(--text-secondary); }}
+        [data-testid="stCaptionContainer"] {{ font-size: .875rem; line-height: 1.55; }}
+        .page-kicker {{
+            color: var(--primary);
+            font-size: .76rem;
+            font-weight: 700;
+            letter-spacing: .12em;
+            margin: .35rem 0 .45rem;
+            text-transform: uppercase;
+        }}
+        .page-lead {{
+            color: var(--text-secondary);
+            font-size: 1rem;
+            line-height: 1.7;
+            margin: -.1rem 0 .9rem;
+            max-width: 70ch;
+        }}
+        [data-testid="stVerticalBlockBorderWrapper"] {{
+            border-radius: 14px !important;
+            box-shadow: var(--shadow-card);
+        }}
+        [data-testid="stButton"] button,
+        [data-testid="stDownloadButton"] button {{
+            min-height: 44px;
+            border-radius: 10px;
+            border-color: var(--border-strong);
+            font-weight: 600;
+            transition: background-color .16s ease, border-color .16s ease, color .16s ease, box-shadow .16s ease;
+            touch-action: manipulation;
+        }}
+        [data-testid="stButton"] button:hover,
+        [data-testid="stDownloadButton"] button:hover {{
+            background: var(--primary-soft);
+            border-color: var(--primary);
+            color: var(--primary);
+            box-shadow: 0 2px 8px rgba(30,79,145,.12);
+        }}
+        [data-testid="stButton"] button[kind="secondary"],
+        [data-testid="stDownloadButton"] button[kind="secondary"] {{
+            background: var(--surface);
+            color: var(--text-primary);
+        }}
+        [data-testid="stButton"] button:focus-visible,
+        [data-testid="stDownloadButton"] button:focus-visible,
+        input:focus-visible,
+        textarea:focus-visible {{
+            outline: 2px solid var(--primary) !important;
+            outline-offset: 2px !important;
+        }}
+        [data-testid="stButton"] button[kind="primary"],
+        [data-testid="stDownloadButton"] button[kind="primary"] {{
+            background: #1e4f91;
+            border-color: #1e4f91;
+            color: #ffffff;
+        }}
+        [data-testid="stButton"] button[kind="primary"]:hover,
+        [data-testid="stDownloadButton"] button[kind="primary"]:hover {{
+            background: #183f74;
+            border-color: #183f74;
+            color: #ffffff;
+        }}
+        [data-testid="stButton"] button:disabled {{ opacity: .46; cursor: not-allowed; }}
+        [data-testid="stTextInput"] input,
+        [data-testid="stNumberInput"] input,
+        [data-testid="stDateInput"] input,
+        [data-testid="stSelectbox"] [data-baseweb="select"] > div,
+        [data-testid="stMultiSelect"] [data-baseweb="select"] > div {{
+            min-height: 44px;
+            border-radius: 9px !important;
+        }}
+        [data-testid="stWidgetLabel"] p {{ color: var(--text-primary); font-weight: 600; }}
+        [data-testid="stTabs"] [role="tablist"] {{
+            gap: .25rem;
+            border-bottom: 1px solid var(--border);
+        }}
+        [data-testid="stTabs"] [role="tab"] {{
+            min-height: 44px;
+            padding-inline: 1.1rem;
+            color: var(--text-secondary);
+            font-weight: 600;
+        }}
+        [data-testid="stTabs"] [role="tab"][aria-selected="true"] {{ color: var(--primary); }}
+        [data-testid="stTabs"] .react-aria-SelectionIndicator {{ background: var(--primary) !important; }}
+        [data-testid="stCheckbox"] label[data-selected="true"] > div:first-of-type {{
+            background: var(--primary) !important;
+            border-color: var(--primary) !important;
+        }}
+        [data-testid="stAlert"] {{ border-radius: 11px; border: 1px solid var(--border); }}
+        [data-testid="stDataFrame"] {{ border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }}
+        [data-testid="stMetric"] {{
+            background: var(--surface-subtle);
+            border: 1px solid var(--border);
+            border-radius: 11px;
+            padding: .75rem 1rem;
+        }}
+        [data-testid="stMetricValue"] {{ color: var(--text-primary); font-variant-numeric: tabular-nums; }}
+        .st-key-topbar {{
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 1.25rem;
+            padding-bottom: .75rem;
+        }}
+        .st-key-topbar [data-testid="stCaptionContainer"] {{ color: var(--text-primary); font-weight: 700; }}
+        [class*="st-key-dataset_card_"] {{ min-height: 188px; }}
+        [class*="st-key-dataset_card_"] [data-testid="stVerticalBlock"] {{ height: 100%; }}
+        [class*="st-key-selected_summary_"] {{
+            background: var(--primary-soft);
+            border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--border));
+            border-radius: 10px;
+            margin-top: .6rem;
+            padding: .55rem .75rem;
+        }}
+        [class*="st-key-selected_summary_"] p {{ margin: 0; }}
+        .st-key-query_controls,
+        .st-key-results_workspace {{ align-self: start; }}
+        .st-key-additional_filter_panel {{
+            background: var(--surface-subtle);
+            border: 1px solid var(--border-strong) !important;
+            border-left: 3px solid var(--primary) !important;
+            border-radius: 11px !important;
+            padding: .65rem .85rem .85rem !important;
+            box-shadow: none;
+        }}
+        .st-key-additional_filter_panel h3 {{ color: var(--text-primary) !important; }}
+        .query-summary {{
+            background: var(--surface-strong);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            color: var(--text-secondary);
+            font-size: .875rem;
+            line-height: 1.6;
+            margin-top: .75rem;
+            padding: .7rem .8rem;
+        }}
+        .query-summary strong {{ color: var(--text-primary); }}
+        .empty-preview {{
+            background: var(--surface-subtle);
+            border: 1px dashed var(--border-strong);
+            border-radius: 12px;
+            margin-top: .8rem;
+            padding: 1.4rem;
+        }}
+        .empty-preview strong {{ color: var(--text-primary); display: block; margin-bottom: .3rem; }}
+        .empty-preview span {{ color: var(--text-secondary); font-size: .9rem; line-height: 1.6; }}
+        @media (max-width: 760px) {{
+            .block-container {{ padding: 1rem 1rem 2rem; }}
+            h1 {{ font-size: 1.7rem !important; }}
+            [class*="st-key-dataset_card_"] {{ min-height: auto; }}
+            [data-testid="stHorizontalBlock"] {{ gap: .75rem; }}
+            .st-key-topbar [data-testid="stCaptionContainer"] {{ display: none; }}
+        }}
+        @media (prefers-reduced-motion: reduce) {{
+            *, *::before, *::after {{ scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }}
+        }}
         </style>
         """,
         unsafe_allow_html=True,
@@ -292,14 +492,17 @@ def apply_theme() -> None:
 
 def render_theme_selector() -> None:
     """在页面右上方显示全中文的显示模式选择。"""
-    _, selector = st.columns((8, 2))
-    with selector:
-        st.selectbox(
-            "显示模式",
-            options=("跟随系统", "白天", "夜间"),
-            key=THEME_KEY,
-            help="选择页面的明暗外观。",
-        )
+    with st.container(key="topbar"):
+        brand, selector = st.columns((7, 3), vertical_alignment="bottom")
+        with brand:
+            st.caption("企业数据查询中心 · 只读访问")
+        with selector:
+            st.selectbox(
+                "显示模式",
+                options=("跟随系统", "白天", "夜间"),
+                key=THEME_KEY,
+                help="选择页面的明暗外观。",
+            )
     apply_theme()
 
 
@@ -318,9 +521,9 @@ def go_home() -> None:
 
 def render_safety_status(mode: str) -> None:
     if mode == "sqlserver":
-        st.info("🔒 当前为只读查询：系统只读取已批准的数据，不支持修改、删除、建表或执行任意 SQL。")
+        st.info("只读安全模式：系统只读取已批准的数据，不支持修改、删除、建表或执行任意 SQL。")
     else:
-        st.info("🧪 当前为模拟数据模式：可体验查询和 Excel 导出，不会连接 SQL Server。")
+        st.info("模拟数据模式：可体验查询和 Excel 导出，不会连接 SQL Server。")
 
 
 def parse_optional_age(value: str, field_name: str) -> tuple[int | None, str | None]:
@@ -549,8 +752,8 @@ def render_additional_filters(
     output_filters: list[OutputFilter] = []
     errors: list[str] = []
     with st.container(border=True, key="additional_filter_panel"):
-        st.subheader("＋ 增加筛选条件")
-        st.caption(f"已添加 {len(row_ids)} 项（可选）。条件只能从已选择的信息中添加，并会同时生效。")
+        st.subheader("增加筛选条件")
+        st.caption(f"已添加 {len(row_ids)} 项（可选） · 条件仅从已选择的信息中产生，并会同时生效。")
         with st.expander("匹配方式和筛选值怎么填写？", expanded=False):
             st.markdown("- **包含**：查找字段中带有该文字的记录，例如“华东”可以查到“华东一区”。")
             st.markdown("- **等于**：查找完全相同的记录，例如“财务部”不会匹配“财务共享中心”。")
@@ -575,7 +778,7 @@ def render_additional_filters(
             operator_labels = {"contains": "包含", "equals": "等于", "gte": "大于等于", "lte": "小于等于"}
 
             if _field_supports_date_filter(field):
-                first, second, third = st.columns((4, 4, 1))
+                first, second, third = st.columns((4, 4, 1.5))
                 with first:
                     start_date = render_chinese_date_input(
                         "开始日期（可选）",
@@ -594,7 +797,13 @@ def render_additional_filters(
                     )
                 with third:
                     st.write("")
-                    st.button("移除", key=additional_filter_widget_key(dataset.report_key, row_id, "remove"), on_click=_remove_additional_filter_row, args=(dataset.report_key, row_id))
+                    st.button(
+                        "移除",
+                        key=additional_filter_widget_key(dataset.report_key, row_id, "remove"),
+                        on_click=_remove_additional_filter_row,
+                        args=(dataset.report_key, row_id),
+                        use_container_width=True,
+                    )
 
                 if start_date is not None and end_date is not None and start_date > end_date:
                     errors.append(f"条件 {position} 的开始日期不能晚于结束日期。")
@@ -607,7 +816,7 @@ def render_additional_filters(
                     errors.append(f"请填写条件 {position} 的开始日期或结束日期，或移除该条件。")
             else:
                 operator_options = ("contains", "equals", "gte", "lte") if _field_supports_numeric_filter(field) else ("contains", "equals")
-                first, second, third = st.columns((3, 4, 1))
+                first, second, third = st.columns((3, 4, 1.5))
                 with first:
                     if st.session_state.get(operator_key) not in operator_options:
                         st.session_state[operator_key] = operator_options[0]
@@ -622,7 +831,13 @@ def render_additional_filters(
                     value = st.text_input("筛选值", key=value_key, placeholder=_filter_value_placeholder(field), help=_filter_value_help(field), max_chars=200)
                 with third:
                     st.write("")
-                    st.button("移除", key=additional_filter_widget_key(dataset.report_key, row_id, "remove"), on_click=_remove_additional_filter_row, args=(dataset.report_key, row_id))
+                    st.button(
+                        "移除",
+                        key=additional_filter_widget_key(dataset.report_key, row_id, "remove"),
+                        on_click=_remove_additional_filter_row,
+                        args=(dataset.report_key, row_id),
+                        use_container_width=True,
+                    )
 
                 st.caption(_OPERATOR_HELP[operator])
                 if value.strip():
@@ -635,7 +850,6 @@ def render_additional_filters(
             key=f"add_additional_filter_{dataset.report_key}",
             on_click=_add_additional_filter_row,
             args=(dataset.report_key,),
-            type="primary",
             use_container_width=True,
         )
     return output_filters, errors[0] if errors else None
@@ -654,7 +868,7 @@ def render_field_picker(dataset: DatasetPresentation) -> list[str]:
         _set_default(f"field_choice_{dataset.report_key}_{field.column_name}", field.column_name in previous_set)
 
     st.markdown("**我想查看哪些信息？**")
-    actions = st.columns((3, 1, 1))
+    actions = st.columns((4, 1.2, 1.2))
     with actions[0]:
         search = st.text_input(
             "搜索信息",
@@ -709,7 +923,10 @@ def render_field_picker(dataset: DatasetPresentation) -> list[str]:
         st.session_state[snapshot_key] = selected
         _clear_additional_filters(dataset.report_key)
     selected_labels = [field_by_column[column].label for column in selected]
-    st.caption(f"已选择 {len(selected)} 项：{'、'.join(selected_labels) if selected_labels else '尚未选择'}")
+    selected_text = "、".join(selected_labels) if selected_labels else "尚未选择"
+    with st.container(key=f"selected_summary_{dataset.report_key}"):
+        st.markdown(f"**已选择 {len(selected)} 项**")
+        st.caption(selected_text)
     with st.expander("字段说明", expanded=False):
         for field in dataset.fields:
             mark = "推荐" if field.recommended else "可选"
@@ -899,7 +1116,11 @@ def render_preview_result(result: dict[str, Any], dataset: DatasetPresentation) 
     total_pages = max(1, max(((row_count + page_size - 1) // page_size for _, row_count, _ in previews), default=1))
     st.subheader("实时预览")
     st.caption(f"左侧字段或条件变更后会自动更新；结果按每页最多 {page_size} 行显示。")
-    st.success(f"当前条件共匹配 {total_rows:,} 行。")
+    result_metrics = st.columns(2)
+    with result_metrics[0]:
+        st.metric("匹配记录", f"{total_rows:,} 行")
+    with result_metrics[1]:
+        st.metric("分页进度", f"{current_page:,} / {total_pages:,}")
     navigation = st.columns((1, 2, 1))
     with navigation[0]:
         st.button(
@@ -977,8 +1198,12 @@ def render_excel_download(dataset: DatasetPresentation) -> None:
 
 def render_home(mode: str) -> None:
     render_theme_selector()
+    st.markdown('<div class="page-kicker">Enterprise Data Workspace</div>', unsafe_allow_html=True)
     st.title("数据查询助手")
-    st.caption(f"版本 {APP_VERSION}")
+    st.markdown(
+        f'<div class="page-lead">通过业务语言完成安全、只读的数据查询与 Excel 导出。无需了解数据表、字段名或 SQL。 · V{APP_VERSION}</div>',
+        unsafe_allow_html=True,
+    )
     render_safety_status(mode)
 
     datasets = available_datasets(mode)
@@ -986,6 +1211,7 @@ def render_home(mode: str) -> None:
     normal_datasets = [dataset for dataset in datasets if not dataset.is_system_test]
     if normal_datasets:
         st.subheader("选择业务模块")
+        st.caption("先选择业务领域，再进入具体查询事项。")
         finance_tab, contract_tab = st.tabs(("财务数据", "合同管理"))
         domain_tabs = (("finance", finance_tab, "财务数据"), ("contract", contract_tab, "合同管理"))
         for domain_key, tab, domain_name in domain_tabs:
@@ -998,8 +1224,9 @@ def render_home(mode: str) -> None:
                 columns = st.columns(min(2, len(domain_datasets)))
                 for index, dataset in enumerate(domain_datasets):
                     with columns[index % len(columns)]:
-                        with st.container(border=True):
-                            st.markdown(f"**{dataset.title.replace('查询', '')}**")
+                        with st.container(border=True, key=f"dataset_card_{dataset.report_key}"):
+                            st.caption(f"{domain_name} · 只读查询")
+                            st.markdown(f"### {dataset.title.replace('查询', '')}")
                             st.caption(dataset.description)
                             if st.button("进入查询", key=f"start_{dataset.report_key}", use_container_width=True):
                                 choose_dataset(dataset.report_key)
@@ -1018,21 +1245,25 @@ def render_home(mode: str) -> None:
 def render_builder(dataset: DatasetPresentation, mode: str, sql_settings: dict[str, Any], app_settings: dict[str, Any]) -> None:
     report = get_report(dataset.report_key)
     render_theme_selector()
-    if st.button("← 返回首页"):
+    if st.button("← 返回业务模块", key="back_to_home"):
         go_home()
 
     if dataset.is_system_test and mode != "demo":
         st.warning("员工测试数据只用于本机演示和管理员连通性核验，不属于真实业务库。请返回首页，选择“财务数据”或“合同管理”中的业务事项。")
         return
 
+    domain_name = "财务数据" if dataset.domain_key == "finance" else "合同管理"
+    st.markdown(f'<div class="page-kicker">{escape(domain_name)} / 业务查询</div>', unsafe_allow_html=True)
     st.title(dataset.title)
-    st.caption(dataset.description)
-    st.caption("系统会自动关联已批准的业务数据；您无需了解数据表或字段名称。")
+    st.markdown(
+        f'<div class="page-lead">{escape(dataset.description)} 系统会自动关联已批准的数据，您无需了解数据表或字段名称。</div>',
+        unsafe_allow_html=True,
+    )
     render_safety_status(mode)
 
     settings_column, preview_column = st.columns((4, 6), gap="large")
     with settings_column:
-        with st.container(border=True):
+        with st.container(border=True, key="query_controls"):
             st.subheader("1. 选择要查看的信息")
             selected_fields = render_field_picker(dataset)
             st.divider()
@@ -1042,7 +1273,11 @@ def render_builder(dataset: DatasetPresentation, mode: str, sql_settings: dict[s
             if filter_error:
                 st.error(filter_error)
             output_filters, output_filter_error = render_additional_filters(dataset, selected_fields)
-            st.caption(query_summary(dataset, filters or {}, selected_fields, output_filters))
+            summary = escape(query_summary(dataset, filters or {}, selected_fields, output_filters))
+            st.markdown(
+                f'<div class="query-summary"><strong>当前查询摘要</strong><br>{summary}</div>',
+                unsafe_allow_html=True,
+            )
 
     is_ready = not filter_error and filters is not None and not output_filter_error and bool(selected_fields)
     signature: tuple[Any, ...] | None = None
@@ -1121,7 +1356,7 @@ def render_builder(dataset: DatasetPresentation, mode: str, sql_settings: dict[s
             preview_error = "请至少选择一项要查看的信息。"
 
     with preview_column:
-        with st.container(border=True):
+        with st.container(border=True, key="results_workspace"):
             result = st.session_state.get(RESULT_KEY)
             if preview_error:
                 st.subheader("实时预览")
@@ -1163,11 +1398,15 @@ def render_builder(dataset: DatasetPresentation, mode: str, sql_settings: dict[s
                 render_excel_download(dataset)
             else:
                 st.subheader("实时预览")
-                st.caption("请选择要查看的信息并设置有效条件，结果会自动显示在这里。")
+                st.caption("查询结果会在设置变化后自动刷新。")
+                st.markdown(
+                    '<div class="empty-preview"><strong>结果区已就绪</strong><span>在左侧确认查看字段和查询条件。任一设置发生变化后，系统将在此显示分页结果。</span></div>',
+                    unsafe_allow_html=True,
+                )
 
 
 def main() -> None:
-    st.set_page_config(page_title="数据查询助手", page_icon="📊", layout="wide")
+    st.set_page_config(page_title="数据查询助手", layout="wide", initial_sidebar_state="collapsed")
     initialize_session()
     try:
         mode, sql_settings, app_settings = get_settings()

@@ -60,3 +60,15 @@ def test_dark_theme_covers_current_streamlit_input_layers():
     assert "input:-webkit-autofill" in theme_css_source
     assert "background-color: transparent !important" in theme_css_source
     assert '.stApp input[type="text"]' in theme_css_source
+
+
+def test_enterprise_theme_has_accessible_interaction_and_responsive_tokens():
+    theme_css_source = inspect.getsource(apply_theme)
+
+    assert "--app-bg" in theme_css_source
+    assert "--text-primary" in theme_css_source
+    assert "min-height: 44px" in theme_css_source
+    assert "focus-visible" in theme_css_source
+    assert "prefers-reduced-motion: reduce" in theme_css_source
+    assert "@media (max-width: 760px)" in theme_css_source
+    assert ".react-aria-SelectionIndicator" in theme_css_source
